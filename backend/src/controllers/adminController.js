@@ -299,40 +299,60 @@ exports.assignTeacher = async (req, res) => {
   }
 };
 
-// Enroll Student in Course (Direct Approval)
+// Enroll Student in Course (Direct Approval - supports single or multiple students)
 exports.enrollStudent = async (req, res) => {
-  const { courseId, studentId } = req.body;
-  if (!courseId || !studentId) {
-    return res.status(400).json({ message: 'Course ID and Student ID are required' });
-  }
-  try {
-    // Check if enrollment already exists
-    const [existing] = await db.query(
-      'SELECT status FROM course_enrollments WHERE course_id = ? AND student_id = ?',
-      [courseId, studentId]
-    );
+  const { courseId, studentId, studentIds } = req.body;
 
-    if (existing.length > 0) {
-      if (existing[0].status === 'approved') {
-        return res.status(400).json({ message: 'Student is already enrolled' });
+  if (!courseId) {
+    return res.status(400).json({ message: 'Course ID is required' });
+  }
+
+  // Support studentId as single string or array, or studentIds as array
+  let ids = [];
+  if (Array.isArray(studentIds) && studentIds.length > 0) {
+    ids = studentIds;
+  } else if (Array.isArray(studentId) && studentId.length > 0) {
+    ids = studentId;
+  } else if (studentId && typeof studentId === 'string') {
+    ids = [studentId];
+  }
+
+  if (ids.length === 0) {
+    return res.status(400).json({ message: 'Please select at least one student to enroll' });
+  }
+
+  try {
+    let enrolledCount = 0;
+    for (const sId of ids) {
+      // Check if enrollment already exists
+      const [existing] = await db.query(
+        'SELECT status FROM course_enrollments WHERE course_id = ? AND student_id = ?',
+        [courseId, sId]
+      );
+
+      if (existing.length > 0) {
+        if (existing[0].status !== 'approved') {
+          // Approve existing pending request
+          await db.query(
+            "UPDATE course_enrollments SET status = 'approved' WHERE course_id = ? AND student_id = ?",
+            [courseId, sId]
+          );
+          enrolledCount++;
+        }
+        // If already approved, skip silently
       } else {
-        // Approve existing pending request
         await db.query(
-          "UPDATE course_enrollments SET status = 'approved' WHERE course_id = ? AND student_id = ?",
-          [courseId, studentId]
+          "INSERT INTO course_enrollments (course_id, student_id, status) VALUES (?, ?, 'approved')",
+          [courseId, sId]
         );
-        return res.json({ message: 'Student enrollment request approved' });
+        enrolledCount++;
       }
     }
 
-    await db.query(
-      "INSERT INTO course_enrollments (course_id, student_id, status) VALUES (?, ?, 'approved')",
-      [courseId, studentId]
-    );
-    return res.json({ message: 'Student enrolled in course successfully' });
+    return res.json({ message: `Successfully enrolled/updated ${enrolledCount} student(s) out of ${ids.length} selected` });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error enrolling student' });
+    console.error('Error enrolling students:', error);
+    return res.status(500).json({ message: 'Server error enrolling students' });
   }
 };
 

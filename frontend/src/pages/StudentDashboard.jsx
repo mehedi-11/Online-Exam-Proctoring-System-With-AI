@@ -3,15 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Calendar, BookOpen, KeyRound, CheckCircle2, ShieldAlert, 
-  Hourglass, Play, RefreshCw, GraduationCap
+  Hourglass, Play, RefreshCw, GraduationCap,
+  Menu, LogOut
 } from 'lucide-react';
-import Navbar from '../components/Navbar';
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [activeTab, setActiveTab] = useState('exams');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Data State
   const [exams, setExams] = useState([]);
@@ -93,10 +94,112 @@ export default function StudentDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Navbar />
+    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+      {/* Mobile Header */}
+      <div className="lg:hidden flex items-center justify-between bg-white border-b border-gray-150 p-4 sticky top-0 z-35 shadow-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-tomato-500 flex items-center justify-center text-white font-extrabold text-sm">
+            <BookOpen size={16} />
+          </div>
+          <span className="font-extrabold text-md text-black">Teach<span className="text-tomato-500">Tech</span></span>
+        </div>
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-2 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-55 transition-colors"
+        >
+          <Menu size={20} />
+        </button>
+      </div>
 
-      <div className="flex-grow max-w-6xl w-full mx-auto px-6 py-10">
+      {/* Sidebar Navigation */}
+      <div className={`fixed inset-y-0 left-0 bg-white border-r border-gray-150 w-64 z-40 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static flex flex-col justify-between shrink-0 ${
+        isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}>
+        {/* Logo and Menu Links */}
+        <div>
+          {/* Brand Logo Header */}
+          <div className="p-6 border-b border-gray-150 hidden lg:flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-tomato-500 flex items-center justify-center text-white shadow-lg shadow-tomato-500/20">
+              <BookOpen className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="font-extrabold text-lg tracking-tight text-black">
+                Teach<span className="text-tomato-500">Tech</span>
+              </span>
+              <span className="text-[10px] text-gray-400 block font-semibold tracking-widest uppercase">Student Portal</span>
+            </div>
+          </div>
+
+          {/* Navigation Links */}
+          <div className="p-4 space-y-1.5">
+            {[
+              { id: 'exams', label: 'My Online Exams', icon: Calendar },
+              { id: 'courses', label: 'Course Catalog & Enrollment', icon: BookOpen },
+              { id: 'profile', label: 'Profile & Password', icon: KeyRound }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setError('');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-3 font-semibold text-sm rounded-xl transition-all ${
+                  activeTab === tab.id 
+                    ? 'bg-tomato-500 text-white shadow-lg shadow-tomato-500/20 animate-fade-in'
+                    : 'text-gray-500 hover:text-dark-900 hover:bg-gray-100/60'
+                }`}
+              >
+                <tab.icon size={18} />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-gray-150 space-y-4">
+          <div className="flex items-center gap-3 px-2">
+            {profile.profile_image ? (
+              <img 
+                src={`http://localhost:5000${profile.profile_image}`} 
+                alt="Student" 
+                className="w-10 h-10 rounded-full object-cover border border-tomato-500 shadow-sm"
+                onError={(e) => { e.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + profile.name; }}
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-tomato-100 text-tomato-500 flex items-center justify-center border border-tomato-200 font-extrabold">
+                {profile.name ? profile.name.charAt(0).toUpperCase() : 'S'}
+              </div>
+            )}
+            <div className="min-w-0">
+              <span className="font-bold text-xs text-dark-900 block truncate">{profile.name || 'Student'}</span>
+              <span className="text-[10px] text-gray-400 font-semibold block truncate">ID: {profile.id}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              localStorage.clear();
+              navigate('/');
+            }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 hover:border-tomato-500 hover:bg-tomato-50/10 hover:text-tomato-600 rounded-xl text-xs font-bold text-gray-650 transition-all active:scale-95"
+          >
+            <LogOut size={14} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Sidebar Backdrop Overlay */}
+      {isSidebarOpen && (
+        <div 
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-30 lg:hidden"
+        />
+      )}
+
+      {/* Main Content Area */}
+      <div className="flex-grow flex-1 min-w-0 p-6 md:p-10 max-h-screen overflow-y-auto">
         
         {/* Header Summary */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -104,7 +207,7 @@ export default function StudentDashboard() {
             <h1 className="text-3xl font-bold text-dark-900">Student Portal</h1>
             <p className="text-gray-400 text-sm">Welcome back, {profile.name}! Track exams and course enrollment statuses.</p>
           </div>
-          <button onClick={fetchData} className="tomato-btn-outline py-2 text-xs flex items-center gap-1">
+          <button onClick={fetchData} className="tomato-btn-outline py-2 text-xs flex items-center gap-1.5">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             <span>Refresh Portal</span>
           </button>
@@ -124,28 +227,6 @@ export default function StudentDashboard() {
             <span>{error}</span>
           </div>
         )}
-
-        {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 gap-2 mb-8 overflow-x-auto pb-1">
-          {[
-            { id: 'exams', label: 'My Online Exams', icon: Calendar },
-            { id: 'courses', label: 'Course Catalog & Enrollment', icon: BookOpen },
-            { id: 'profile', label: 'Profile & Password', icon: KeyRound }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setError(''); }}
-              className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm rounded-t-xl transition-all ${
-                activeTab === tab.id 
-                  ? 'border-b-2 border-tomato-500 text-tomato-600 bg-white shadow-sm'
-                  : 'text-gray-500 hover:text-dark-900 hover:bg-gray-150/50'
-              }`}
-            >
-              <tab.icon size={16} />
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
 
         {/* Dynamic Panel */}
         <div className="bg-white rounded-2xl border border-gray-150 p-6 md:p-8 shadow-sm">

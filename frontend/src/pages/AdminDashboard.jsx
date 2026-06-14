@@ -3,15 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Users, UserCheck, BookOpen, UserCog, ShieldAlert, Check, X, 
-  Trash2, AlertTriangle, ShieldCheck, Plus, RefreshCw, UserMinus
+  Trash2, AlertTriangle, ShieldCheck, Plus, RefreshCw, UserMinus,
+  Menu, LogOut
 } from 'lucide-react';
-import Navbar from '../components/Navbar';
 import Modal from '../components/Modal';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const [activeTab, setActiveTab] = useState('overview');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
   
   // Data State
   const [teachers, setTeachers] = useState([]);
@@ -213,14 +216,27 @@ export default function AdminDashboard() {
 
   const handleEnrollStudent = async (e) => {
     e.preventDefault();
+    if (!enrollForm.courseId) {
+      setError('Please select a course');
+      return;
+    }
+    if (selectedStudentIds.length === 0) {
+      setError('Please select at least one student');
+      return;
+    }
     try {
-      await api.post('http://localhost:5000/api/admin/courses/enroll-student', enrollForm);
+      await api.post('http://localhost:5000/api/admin/courses/enroll-student', {
+        courseId: enrollForm.courseId,
+        studentIds: selectedStudentIds
+      });
       setIsEnrollModalOpen(false);
       setEnrollForm({ courseId: '', studentId: '' });
-      triggerSuccess('Student enrolled successfully');
+      setSelectedStudentIds([]);
+      setStudentSearchQuery('');
+      triggerSuccess(`Successfully enrolled ${selectedStudentIds.length} student(s)`);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Error enrolling student');
+      setError(err.response?.data?.message || 'Error enrolling student(s)');
     }
   };
 
@@ -234,11 +250,129 @@ export default function AdminDashboard() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Navbar />
+  // Helper to filter students based on search query for Direct Enroll
+  const filteredStudentsForEnroll = students.filter(
+    s => s.status === 'approved' && 
+    (s.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) || 
+     s.id.toLowerCase().includes(studentSearchQuery.toLowerCase()))
+  );
 
-      <div className="flex-grow max-w-7xl w-full mx-auto px-6 py-10">
+  const handleStudentCheckboxChange = (studentId) => {
+    setSelectedStudentIds(prev => 
+      prev.includes(studentId) 
+        ? prev.filter(id => id !== studentId) 
+        : [...prev, studentId]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedStudentIds.length === filteredStudentsForEnroll.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(filteredStudentsForEnroll.map(s => s.id));
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+      {/* Mobile Header */}
+      <div className="lg:hidden flex items-center justify-between bg-white border-b border-gray-150 p-4 sticky top-0 z-30 shadow-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-tomato-500 flex items-center justify-center text-white font-extrabold text-sm">
+            <BookOpen size={16} />
+          </div>
+          <span className="font-extrabold text-md text-black">Teach<span className="text-tomato-500">Tech</span></span>
+        </div>
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-2 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-55 transition-colors"
+        >
+          <Menu size={20} />
+        </button>
+      </div>
+
+      {/* Sidebar Navigation */}
+      <div className={`fixed inset-y-0 left-0 bg-white border-r border-gray-150 w-64 z-40 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static flex flex-col justify-between shrink-0 ${
+        isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}>
+        {/* Logo and Menu Links */}
+        <div>
+          {/* Brand Logo Header */}
+          <div className="p-6 border-b border-gray-150 hidden lg:flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-tomato-500 flex items-center justify-center text-white shadow-lg shadow-tomato-500/20">
+              <BookOpen className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="font-extrabold text-lg tracking-tight text-black">
+                Teach<span className="text-tomato-500">Tech</span>
+              </span>
+              <span className="text-[10px] text-gray-400 block font-semibold tracking-widest uppercase">Admin Portal</span>
+            </div>
+          </div>
+
+          {/* Navigation Links */}
+          <div className="p-4 space-y-1.5">
+            {[
+              { id: 'overview', label: 'Pending Approvals', icon: UserCheck },
+              { id: 'teachers', label: 'Teachers', icon: Users },
+              { id: 'students', label: 'Students', icon: Users },
+              { id: 'courses', label: 'Courses & Catalog', icon: BookOpen },
+              { id: 'profile', label: 'Admin Credentials', icon: UserCog }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setError('');
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-3 font-semibold text-sm rounded-xl transition-all ${
+                  activeTab === tab.id 
+                    ? 'bg-tomato-500 text-white shadow-lg shadow-tomato-500/20 animate-fade-in'
+                    : 'text-gray-500 hover:text-dark-900 hover:bg-gray-100/60'
+                }`}
+              >
+                <tab.icon size={18} />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-gray-150 space-y-4">
+          <div className="flex items-center gap-3 px-2">
+            <div className="w-10 h-10 rounded-full bg-tomato-100 text-tomato-500 flex items-center justify-center border border-tomato-200 font-extrabold">
+              {profile.name ? profile.name.charAt(0).toUpperCase() : 'A'}
+            </div>
+            <div className="min-w-0">
+              <span className="font-bold text-xs text-dark-900 block truncate">{profile.name || 'System Admin'}</span>
+              <span className="text-[10px] text-gray-400 font-semibold block truncate">{profile.email}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              localStorage.clear();
+              navigate('/');
+            }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 hover:border-tomato-500 hover:bg-tomato-50/10 hover:text-tomato-600 rounded-xl text-xs font-bold text-gray-650 transition-all active:scale-95"
+          >
+            <LogOut size={14} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Sidebar Backdrop Overlay */}
+      {isSidebarOpen && (
+        <div 
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-30 lg:hidden"
+        />
+      )}
+
+      {/* Main Content Area */}
+      <div className="flex-grow flex-1 min-w-0 p-6 md:p-10 max-h-screen overflow-y-auto">
         
         {/* Header Summary */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -269,30 +403,6 @@ export default function AdminDashboard() {
             <span>{error}</span>
           </div>
         )}
-
-        {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 gap-2 mb-8 overflow-x-auto pb-1">
-          {[
-            { id: 'overview', label: 'Pending Approvals', icon: UserCheck },
-            { id: 'teachers', label: 'Teachers', icon: Users },
-            { id: 'students', label: 'Students', icon: Users },
-            { id: 'courses', label: 'Courses & Assignments', icon: BookOpen },
-            { id: 'profile', label: 'Credentials Profile', icon: UserCog }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setError(''); }}
-              className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm rounded-t-xl transition-all ${
-                activeTab === tab.id 
-                  ? 'border-b-2 border-tomato-500 text-tomato-600 bg-white shadow-sm'
-                  : 'text-gray-500 hover:text-dark-900 hover:bg-gray-100/50'
-              }`}
-            >
-              <tab.icon size={16} />
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
 
         {/* Dynamic Content Sections */}
         <div className="bg-white rounded-2xl border border-gray-150 p-6 md:p-8 shadow-sm">
@@ -815,7 +925,7 @@ export default function AdminDashboard() {
       </Modal>
 
       {/* Modal: Direct Enroll Student */}
-      <Modal isOpen={isEnrollModalOpen} onClose={() => setIsEnrollModalOpen(false)} title="Direct Enroll Student">
+      <Modal isOpen={isEnrollModalOpen} onClose={() => { setIsEnrollModalOpen(false); setSelectedStudentIds([]); setStudentSearchQuery(''); }} title="Direct Enroll Students (Bulk)">
         <form onSubmit={handleEnrollStudent} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Course</label>
@@ -832,20 +942,63 @@ export default function AdminDashboard() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Student</label>
-            <select
-              required
-              value={enrollForm.studentId}
-              onChange={e => setEnrollForm({ ...enrollForm, studentId: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            >
-              <option value="">-- Choose Student --</option>
-              {students.filter(s => s.status === 'approved').map(s => (
-                <option key={s.id} value={s.id}>{s.name} ({s.id})</option>
-              ))}
-            </select>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Students</label>
+            
+            {/* Search Box */}
+            <input 
+              type="text"
+              placeholder="Search student by name or ID..."
+              value={studentSearchQuery}
+              onChange={(e) => setStudentSearchQuery(e.target.value)}
+              className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 focus:border-tomato-500 focus:bg-white rounded-xl text-xs focus:outline-none mb-3 smooth-transition"
+            />
+            
+            {/* Select All Toggle Header */}
+            <div className="flex items-center justify-between mb-2 px-1 text-[11px] font-semibold text-gray-500">
+              <span>{filteredStudentsForEnroll.length} approved student(s) found</span>
+              {filteredStudentsForEnroll.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleToggleSelectAll}
+                  className="text-tomato-500 hover:text-tomato-650 font-bold transition-colors"
+                >
+                  {selectedStudentIds.length === filteredStudentsForEnroll.length ? 'Deselect All' : 'Select All'}
+                </button>
+              )}
+            </div>
+
+            {/* Checkbox List */}
+            <div className="border border-gray-150 rounded-xl max-h-48 overflow-y-auto p-3 bg-gray-50/30 space-y-2">
+              {filteredStudentsForEnroll.map(student => {
+                const isChecked = selectedStudentIds.includes(student.id);
+                return (
+                  <label 
+                    key={student.id} 
+                    className={`flex items-center gap-3 p-2 border rounded-xl cursor-pointer smooth-transition ${
+                      isChecked ? 'border-tomato-300 bg-tomato-50/10' : 'bg-white border-gray-100 hover:border-tomato-200'
+                    }`}
+                  >
+                    <input 
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => handleStudentCheckboxChange(student.id)}
+                      className="accent-tomato-500 w-4 h-4 rounded cursor-pointer"
+                    />
+                    <div className="text-[11px] leading-tight">
+                      <span className="font-bold text-dark-900 block">{student.name}</span>
+                      <span className="font-mono text-gray-400 font-semibold">{student.id}</span>
+                    </div>
+                  </label>
+                );
+              })}
+              {filteredStudentsForEnroll.length === 0 && (
+                <p className="text-center text-[11px] text-gray-405 py-6">No matching approved students found.</p>
+              )}
+            </div>
           </div>
-          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Enroll Student</button>
+          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">
+            Enroll Selected Students ({selectedStudentIds.length})
+          </button>
         </form>
       </Modal>
 
