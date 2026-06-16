@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
-  Users, UserCheck, BookOpen, UserCog, ShieldAlert, Check, X, 
-  Trash2, AlertTriangle, ShieldCheck, Plus, RefreshCw, UserMinus,
-  Menu, LogOut
+  Users, UserCheck, UserCog, ShieldAlert, Check, X, 
+  Trash2, ShieldCheck, Plus, RefreshCw, UserMinus,
+  Menu, LogOut, Eye, EyeOff, LayoutDashboard, Shield
 } from 'lucide-react';
 import Modal from '../components/Modal';
 
@@ -12,15 +12,14 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const [activeTab, setActiveTab] = useState('overview');
+  const [activeUserTab, setActiveUserTab] = useState('students');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
-  const [studentSearchQuery, setStudentSearchQuery] = useState('');
   
   // Data State
   const [teachers, setTeachers] = useState([]);
   const [students, setStudents] = useState([]);
-  const [courses, setCourses] = useState([]);
-  const [pendingEnrollments, setPendingEnrollments] = useState([]);
+  const [admins, setAdmins] = useState([]);
+  const [stats, setStats] = useState({ totalTeachers: 0, totalStudents: 0, totalLiveExams: 0 });
   const [profile, setProfile] = useState({ name: '', email: '', password: '' });
   
   // UI State
@@ -31,16 +30,17 @@ export default function AdminDashboard() {
   // Modals Open State
   const [isTeacherModalOpen, setIsTeacherModalOpen] = useState(false);
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
-  const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
-  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+  const [isPendingTeacherModalOpen, setIsPendingTeacherModalOpen] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
   // Form Fields State
   const [teacherForm, setTeacherForm] = useState({ name: '', email: '', password: '' });
   const [studentForm, setStudentForm] = useState({ id: '', name: '', email: '', password: '' });
-  const [courseForm, setCourseForm] = useState({ name: '', code: '', description: '' });
-  const [assignForm, setAssignForm] = useState({ courseId: '', teacherId: '' });
-  const [enrollForm, setEnrollForm] = useState({ courseId: '', studentId: '' });
+  const [adminForm, setAdminForm] = useState({ name: '', email: '', password: '' });
+  const [showProfilePassword, setShowProfilePassword] = useState(false);
+  const [showTeacherPassword, setShowTeacherPassword] = useState(false);
+  const [showStudentPassword, setShowStudentPassword] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   // Axios Instance with JWT auth
   const api = axios.create({
@@ -59,18 +59,18 @@ export default function AdminDashboard() {
     setLoading(true);
     setError('');
     try {
-      const [tRes, sRes, cRes, peRes, pRes] = await Promise.all([
+      const [tRes, sRes, aRes, stRes, pRes] = await Promise.all([
         api.get('http://localhost:5000/api/admin/teachers'),
         api.get('http://localhost:5000/api/admin/students'),
-        api.get('http://localhost:5000/api/admin/courses'),
-        api.get('http://localhost:5000/api/admin/enrollments/pending'),
+        api.get('http://localhost:5000/api/admin/admins'),
+        api.get('http://localhost:5000/api/admin/dashboard-stats'),
         api.get('http://localhost:5000/api/admin/profile')
       ]);
 
       setTeachers(tRes.data);
       setStudents(sRes.data);
-      setCourses(cRes.data);
-      setPendingEnrollments(peRes.data);
+      setAdmins(aRes.data);
+      setStats(stRes.data);
       setProfile({ ...pRes.data, password: '' });
     } catch (err) {
       console.error(err);
@@ -101,6 +101,20 @@ export default function AdminDashboard() {
       fetchData();
     } catch (err) {
       setError(err.response?.data?.message || 'Error updating profile');
+    }
+  };
+
+  // --- Admin Actions ---
+  const handleAddAdmin = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('http://localhost:5000/api/admin/admins', adminForm);
+      setIsAdminModalOpen(false);
+      setAdminForm({ name: '', email: '', password: '' });
+      triggerSuccess('Admin added successfully');
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error adding admin');
     }
   };
 
@@ -176,110 +190,13 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- Course Actions ---
-  const handleAddCourse = async (e) => {
-    e.preventDefault();
-    try {
-      await api.post('http://localhost:5000/api/admin/courses', courseForm);
-      setIsCourseModalOpen(false);
-      setCourseForm({ name: '', code: '', description: '' });
-      triggerSuccess('Course created successfully');
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Error creating course');
-    }
-  };
-
-  const handleDeleteCourse = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this course?')) return;
-    try {
-      await api.delete(`http://localhost:5000/api/admin/courses/${id}`);
-      triggerSuccess('Course deleted successfully');
-      fetchData();
-    } catch (err) {
-      setError('Error deleting course');
-    }
-  };
-
-  const handleAssignTeacher = async (e) => {
-    e.preventDefault();
-    try {
-      await api.post('http://localhost:5000/api/admin/courses/assign-teacher', assignForm);
-      setIsAssignModalOpen(false);
-      setAssignForm({ courseId: '', teacherId: '' });
-      triggerSuccess('Teacher assigned successfully');
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Error assigning teacher');
-    }
-  };
-
-  const handleEnrollStudent = async (e) => {
-    e.preventDefault();
-    if (!enrollForm.courseId) {
-      setError('Please select a course');
-      return;
-    }
-    if (selectedStudentIds.length === 0) {
-      setError('Please select at least one student');
-      return;
-    }
-    try {
-      await api.post('http://localhost:5000/api/admin/courses/enroll-student', {
-        courseId: enrollForm.courseId,
-        studentIds: selectedStudentIds
-      });
-      setIsEnrollModalOpen(false);
-      setEnrollForm({ courseId: '', studentId: '' });
-      setSelectedStudentIds([]);
-      setStudentSearchQuery('');
-      triggerSuccess(`Successfully enrolled ${selectedStudentIds.length} student(s)`);
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Error enrolling student(s)');
-    }
-  };
-
-  const handleApproveEnrollment = async (courseId, studentId) => {
-    try {
-      await api.post('http://localhost:5000/api/admin/enrollments/approve', { courseId, studentId });
-      triggerSuccess('Student enrollment request approved');
-      fetchData();
-    } catch (err) {
-      setError('Error approving enrollment request');
-    }
-  };
-
-  // Helper to filter students based on search query for Direct Enroll
-  const filteredStudentsForEnroll = students.filter(
-    s => s.status === 'approved' && 
-    (s.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) || 
-     s.id.toLowerCase().includes(studentSearchQuery.toLowerCase()))
-  );
-
-  const handleStudentCheckboxChange = (studentId) => {
-    setSelectedStudentIds(prev => 
-      prev.includes(studentId) 
-        ? prev.filter(id => id !== studentId) 
-        : [...prev, studentId]
-    );
-  };
-
-  const handleToggleSelectAll = () => {
-    if (selectedStudentIds.length === filteredStudentsForEnroll.length) {
-      setSelectedStudentIds([]);
-    } else {
-      setSelectedStudentIds(filteredStudentsForEnroll.map(s => s.id));
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
       {/* Mobile Header */}
       <div className="lg:hidden flex items-center justify-between bg-white border-b border-gray-150 p-4 sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-tomato-500 flex items-center justify-center text-white font-extrabold text-sm">
-            <BookOpen size={16} />
+            <LayoutDashboard size={16} />
           </div>
           <span className="font-extrabold text-md text-black">Teach<span className="text-tomato-500">Tech</span></span>
         </div>
@@ -295,12 +212,10 @@ export default function AdminDashboard() {
       <div className={`fixed inset-y-0 left-0 bg-white border-r border-gray-150 w-64 z-40 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static flex flex-col justify-between shrink-0 ${
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
-        {/* Logo and Menu Links */}
         <div>
-          {/* Brand Logo Header */}
           <div className="p-6 border-b border-gray-150 hidden lg:flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-tomato-500 flex items-center justify-center text-white shadow-lg shadow-tomato-500/20">
-              <BookOpen className="w-6 h-6" />
+              <LayoutDashboard className="w-6 h-6" />
             </div>
             <div>
               <span className="font-extrabold text-lg tracking-tight text-black">
@@ -310,13 +225,11 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Navigation Links */}
           <div className="p-4 space-y-1.5">
             {[
-              { id: 'overview', label: 'Pending Approvals', icon: UserCheck },
-              { id: 'teachers', label: 'Teachers', icon: Users },
-              { id: 'students', label: 'Students', icon: Users },
-              { id: 'courses', label: 'Courses & Catalog', icon: BookOpen },
+              { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+              { id: 'users', label: 'Manage Users', icon: Users },
+              { id: 'admins', label: 'Admins', icon: Shield },
               { id: 'profile', label: 'Admin Credentials', icon: UserCog }
             ].map(tab => (
               <button
@@ -339,7 +252,6 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Sidebar Footer */}
         <div className="p-4 border-t border-gray-150 space-y-4">
           <div className="flex items-center gap-3 px-2">
             <div className="w-10 h-10 rounded-full bg-tomato-100 text-tomato-500 flex items-center justify-center border border-tomato-200 font-extrabold">
@@ -363,7 +275,6 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Mobile Sidebar Backdrop Overlay */}
       {isSidebarOpen && (
         <div 
           onClick={() => setIsSidebarOpen(false)}
@@ -373,12 +284,10 @@ export default function AdminDashboard() {
 
       {/* Main Content Area */}
       <div className="flex-grow flex-1 min-w-0 p-6 md:p-10 max-h-screen overflow-y-auto">
-        
-        {/* Header Summary */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold text-dark-900">Admin Control Center</h1>
-            <p className="text-gray-400 text-sm">Oversee registrations, user accounts, and courses.</p>
+            <p className="text-gray-400 text-sm">Oversee registrations, user accounts, and system status.</p>
           </div>
           <button 
             onClick={fetchData} 
@@ -389,7 +298,6 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* Global Notifications */}
         {success && (
           <div className="bg-green-50 border border-green-200 text-green-700 py-3 px-5 rounded-xl text-xs font-semibold mb-6 flex items-center gap-2 animate-fade-in shadow-sm">
             <ShieldCheck size={16} />
@@ -407,323 +315,215 @@ export default function AdminDashboard() {
         {/* Dynamic Content Sections */}
         <div className="bg-white rounded-2xl border border-gray-150 p-6 md:p-8 shadow-sm">
           
-          {/* TAB: OVERVIEW / APPROVALS */}
+          {/* TAB: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-fade-in">
-              {/* User registration approvals */}
-              <div>
-                <h3 className="text-lg font-bold text-dark-900 mb-4 flex items-center gap-2">
-                  <UserCheck size={18} className="text-tomato-500" />
-                  <span>Pending Registrations (Awaiting Approval)</span>
-                </h3>
+              <h3 className="text-lg font-bold text-dark-900 mb-4 flex items-center gap-2">
+                <LayoutDashboard size={18} className="text-tomato-500" />
+                <span>System Statistics</span>
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 flex items-center gap-4">
+                  <div className="bg-blue-500 text-white p-3 rounded-xl">
+                    <Users size={24} />
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Students</p>
+                    <p className="text-3xl font-black text-dark-900">{stats.totalStudents}</p>
+                  </div>
+                </div>
 
-                <div className="overflow-x-auto">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Teachers Pending */}
-                    <div className="border border-gray-150 rounded-xl p-5 bg-gray-50/55">
-                      <h4 className="font-bold text-xs text-gray-500 uppercase tracking-widest mb-3">Pending Teachers</h4>
-                      {teachers.filter(t => t.status === 'pending').length === 0 ? (
-                        <p className="text-xs text-gray-400 py-2">No pending teacher approvals.</p>
-                      ) : (
-                        <div className="space-y-3">
-                          {teachers.filter(t => t.status === 'pending').map(teacher => (
-                            <div key={teacher.id} className="flex justify-between items-center bg-white border border-gray-150 p-3 rounded-lg text-xs">
-                              <div>
-                                <p className="font-bold text-dark-900">{teacher.name}</p>
-                                <span className="text-gray-400">{teacher.email}</span>
-                              </div>
-                              <div className="flex gap-2">
-                                <button 
-                                  onClick={() => handleUpdateTeacherStatus(teacher.id, 'pending')}
-                                  className="p-1 text-green-600 hover:bg-green-50 rounded-lg smooth-transition"
-                                  title="Approve"
-                                >
-                                  <Check size={18} />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteTeacher(teacher.id)}
-                                  className="p-1 text-red-600 hover:bg-red-50 rounded-lg smooth-transition"
-                                  title="Reject"
-                                >
-                                  <X size={18} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                <div className="bg-green-50 border border-green-100 rounded-2xl p-6 flex items-center gap-4">
+                  <div className="bg-green-500 text-white p-3 rounded-xl">
+                    <UserCheck size={24} />
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Teachers</p>
+                    <p className="text-3xl font-black text-dark-900">{stats.totalTeachers}</p>
+                  </div>
+                </div>
 
-                    {/* Students Pending */}
-                    <div className="border border-gray-150 rounded-xl p-5 bg-gray-50/55">
-                      <h4 className="font-bold text-xs text-gray-500 uppercase tracking-widest mb-3">Pending Students</h4>
-                      {students.filter(s => s.status === 'pending').length === 0 ? (
-                        <p className="text-xs text-gray-400 py-2">No pending student approvals.</p>
-                      ) : (
-                        <div className="space-y-3">
-                          {students.filter(s => s.status === 'pending').map(student => (
-                            <div key={student.id} className="flex justify-between items-center bg-white border border-gray-150 p-3 rounded-lg text-xs">
-                              <div>
-                                <p className="font-bold text-dark-900">{student.name} ({student.id})</p>
-                                <span className="text-gray-400">{student.email}</span>
-                              </div>
-                              <div className="flex gap-2">
-                                <button 
-                                  onClick={() => handleUpdateStudentStatus(student.id, 'pending')}
-                                  className="p-1 text-green-600 hover:bg-green-50 rounded-lg smooth-transition"
-                                  title="Approve"
-                                >
-                                  <Check size={18} />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteStudent(student.id)}
-                                  className="p-1 text-red-600 hover:bg-red-50 rounded-lg smooth-transition"
-                                  title="Reject"
-                                >
-                                  <X size={18} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                <div className="bg-purple-50 border border-purple-100 rounded-2xl p-6 flex items-center gap-4">
+                  <div className="bg-purple-500 text-white p-3 rounded-xl">
+                    <LayoutDashboard size={24} />
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Live Exams</p>
+                    <p className="text-3xl font-black text-dark-900">{stats.totalLiveExams}</p>
                   </div>
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Course enrollment approvals */}
-              <div>
-                <h3 className="text-lg font-bold text-dark-900 mb-4 flex items-center gap-2">
-                  <BookOpen size={18} className="text-tomato-500" />
-                  <span>Pending Course Enrollment Requests</span>
-                </h3>
-
-                {pendingEnrollments.length === 0 ? (
-                  <div className="border border-gray-150 bg-gray-50 rounded-xl py-6 text-center text-xs text-gray-400">
-                    No active course enrollment requests.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {pendingEnrollments.map((req, idx) => (
-                      <div key={idx} className="flex justify-between items-center bg-white border border-gray-150 p-4 rounded-xl text-xs">
-                        <div>
-                          <p className="font-bold text-dark-900">{req.student_name} ({req.student_id})</p>
-                          <p className="text-gray-400">Requested: <span className="font-semibold text-tomato-500">{req.course_code} - {req.course_name}</span></p>
-                        </div>
-                        <button 
-                          onClick={() => handleApproveEnrollment(req.course_id, req.student_id)}
-                          className="tomato-btn py-1.5 px-3 text-[11px] rounded-lg"
-                        >
-                          <Check size={14} />
-                          <span>Approve</span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+          {/* TAB: USERS */}
+          {activeTab === 'users' && (
+            <div className="animate-fade-in space-y-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+                  <button 
+                    onClick={() => setActiveUserTab('students')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeUserTab === 'students' ? 'bg-white shadow-sm text-tomato-500' : 'text-gray-500 hover:text-dark-900'}`}
+                  >
+                    Students
+                  </button>
+                  <button 
+                    onClick={() => setActiveUserTab('teachers')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeUserTab === 'teachers' ? 'bg-white shadow-sm text-tomato-500' : 'text-gray-500 hover:text-dark-900'}`}
+                  >
+                    Teachers
+                  </button>
+                </div>
+                
+                {activeUserTab === 'teachers' && (
+                  <button 
+                    onClick={() => setIsPendingTeacherModalOpen(true)}
+                    className="flex items-center gap-2 bg-yellow-50 text-yellow-700 border border-yellow-200 px-4 py-2 rounded-xl text-xs font-bold hover:bg-yellow-100 transition"
+                  >
+                    <UserCheck size={14} />
+                    <span>Pending Requests ({teachers.filter(t => t.status === 'pending').length})</span>
+                  </button>
                 )}
               </div>
-            </div>
-          )}
 
-          {/* TAB: TEACHERS */}
-          {activeTab === 'teachers' && (
-            <div className="space-y-6 animate-fade-in">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-dark-900">Registered Instructors ({teachers.length})</h3>
-                <button 
-                  onClick={() => setIsTeacherModalOpen(true)}
-                  className="tomato-btn py-2 text-xs flex items-center gap-1"
-                >
-                  <Plus size={14} />
-                  <span>Add Teacher</span>
-                </button>
-              </div>
-
-              <div className="overflow-x-auto border border-gray-150 rounded-xl">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-150 text-gray-500 font-bold uppercase tracking-wider">
-                      <th className="p-4">Name</th>
-                      <th className="p-4">Email</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4">Joined Date</th>
-                      <th className="p-4 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-150">
-                    {teachers.map(teacher => (
-                      <tr key={teacher.id} className="hover:bg-gray-50/50">
-                        <td className="p-4 font-bold text-dark-900">{teacher.name}</td>
-                        <td className="p-4">{teacher.email}</td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                            teacher.status === 'approved' ? 'bg-green-50 text-green-700 border border-green-200' :
-                            teacher.status === 'suspended' ? 'bg-red-50 text-red-700 border border-red-200' :
-                            'bg-yellow-50 text-yellow-700 border border-yellow-200'
-                          }`}>
-                            {teacher.status}
-                          </span>
-                        </td>
-                        <td className="p-4">{new Date(teacher.joining_date).toLocaleDateString()}</td>
-                        <td className="p-4 flex justify-center gap-2">
-                          <button
-                            onClick={() => handleUpdateTeacherStatus(teacher.id, teacher.status)}
-                            className={`px-3 py-1.5 rounded-lg border font-semibold flex items-center gap-1.5 ${
-                              teacher.status === 'approved' 
-                                ? 'border-red-200 text-red-600 hover:bg-red-50' 
-                                : 'border-green-200 text-green-600 hover:bg-green-50'
-                            }`}
-                          >
-                            {teacher.status === 'approved' ? <UserMinus size={13} /> : <UserCheck size={13} />}
-                            <span>{teacher.status === 'approved' ? 'Suspend' : 'Activate'}</span>
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTeacher(teacher.id)}
-                            className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg"
-                            title="Delete"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: STUDENTS */}
-          {activeTab === 'students' && (
-            <div className="space-y-6 animate-fade-in">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-dark-900">Registered Students ({students.length})</h3>
-                <button 
-                  onClick={() => setIsStudentModalOpen(true)}
-                  className="tomato-btn py-2 text-xs flex items-center gap-1"
-                >
-                  <Plus size={14} />
-                  <span>Add Student</span>
-                </button>
-              </div>
-
-              <div className="overflow-x-auto border border-gray-150 rounded-xl">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-150 text-gray-500 font-bold uppercase tracking-wider">
-                      <th className="p-4">Student ID</th>
-                      <th className="p-4">Name</th>
-                      <th className="p-4">Email</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-150">
-                    {students.map(student => (
-                      <tr key={student.id} className="hover:bg-gray-50/50">
-                        <td className="p-4 font-mono font-bold text-dark-900">{student.id}</td>
-                        <td className="p-4 font-bold text-dark-900">{student.name}</td>
-                        <td className="p-4">{student.email}</td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                            student.status === 'approved' ? 'bg-green-50 text-green-700 border border-green-200' :
-                            student.status === 'suspended' ? 'bg-red-50 text-red-700 border border-red-200' :
-                            'bg-yellow-50 text-yellow-700 border border-yellow-200'
-                          }`}>
-                            {student.status}
-                          </span>
-                        </td>
-                        <td className="p-4 flex justify-center gap-2">
-                          <button
-                            onClick={() => handleUpdateStudentStatus(student.id, student.status)}
-                            className={`px-3 py-1.5 rounded-lg border font-semibold flex items-center gap-1.5 ${
-                              student.status === 'approved' 
-                                ? 'border-red-200 text-red-600 hover:bg-red-50' 
-                                : 'border-green-200 text-green-600 hover:bg-green-50'
-                            }`}
-                          >
-                            {student.status === 'approved' ? <UserMinus size={13} /> : <UserCheck size={13} />}
-                            <span>{student.status === 'approved' ? 'Suspend' : 'Activate'}</span>
-                          </button>
-                          <button
-                            onClick={() => handleDeleteStudent(student.id)}
-                            className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg"
-                            title="Delete"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: COURSES */}
-          {activeTab === 'courses' && (
-            <div className="space-y-6 animate-fade-in">
-              <div className="flex flex-wrap justify-between items-center gap-4">
-                <h3 className="text-lg font-bold text-dark-900">System Course Catalog ({courses.length})</h3>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => setIsCourseModalOpen(true)}
-                    className="tomato-btn py-2 text-xs"
-                  >
-                    <Plus size={14} />
-                    <span>Create Course</span>
-                  </button>
-                  <button 
-                    onClick={() => setIsAssignModalOpen(true)}
-                    className="tomato-btn-outline py-2 text-xs"
-                  >
-                    <span>Assign Instructor</span>
-                  </button>
-                  <button 
-                    onClick={() => setIsEnrollModalOpen(true)}
-                    className="tomato-btn-outline py-2 text-xs"
-                  >
-                    <span>Direct Enroll Student</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {courses.map(course => (
-                  <div key={course.id} className="border border-gray-150 p-5 rounded-2xl relative bg-white shadow-sm flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-start mb-3">
-                        <span className="bg-tomato-50 text-tomato-600 px-3 py-1 rounded-xl text-[10px] font-bold border border-tomato-100 uppercase">
-                          {course.code}
-                        </span>
-                        <button 
-                          onClick={() => handleDeleteCourse(course.id)}
-                          className="text-gray-400 hover:text-red-600 smooth-transition"
-                          title="Delete Course"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                      <h4 className="font-bold text-dark-900 text-sm mb-1">{course.name}</h4>
-                      <p className="text-xs text-gray-400 line-clamp-2 mb-4 leading-normal">{course.description || 'No description provided.'}</p>
-                    </div>
-
-                    <div className="border-t border-gray-100 pt-4 flex justify-between items-center text-xs">
-                      <div>
-                        <span className="text-gray-400 block text-[10px] uppercase font-semibold">Instructor</span>
-                        <span className="font-semibold text-dark-900">
-                          {course.teacher_name ? course.teacher_name : 'Unassigned'}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-gray-400 block text-[10px] uppercase font-semibold">Enrolled Students</span>
-                        <span className="font-semibold text-tomato-500">{course.enrolled_students_count} Students</span>
-                      </div>
-                    </div>
+              {/* STUDENTS TAB */}
+              {activeUserTab === 'students' && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-bold text-dark-900">Student List</h4>
+                    <button onClick={() => setIsStudentModalOpen(true)} className="tomato-btn py-2 text-xs flex items-center gap-1">
+                      <Plus size={14} /> <span>Add Student</span>
+                    </button>
                   </div>
-                ))}
+                  <div className="overflow-x-auto border border-gray-150 rounded-xl">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-150 text-gray-500 font-bold uppercase tracking-wider">
+                          <th className="p-4">Student ID</th>
+                          <th className="p-4">Name</th>
+                          <th className="p-4">Email</th>
+                          <th className="p-4">Status</th>
+                          <th className="p-4 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-150">
+                        {students.map(student => (
+                          <tr key={student.id} className="hover:bg-gray-50/50">
+                            <td className="p-4 font-mono font-bold text-dark-900">{student.id}</td>
+                            <td className="p-4 font-bold text-dark-900">{student.name}</td>
+                            <td className="p-4">{student.email}</td>
+                            <td className="p-4">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${student.status === 'approved' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                                {student.status}
+                              </span>
+                            </td>
+                            <td className="p-4 flex justify-center gap-2">
+                              <button
+                                onClick={() => handleUpdateStudentStatus(student.id, student.status)}
+                                className={`px-3 py-1.5 rounded-lg border font-semibold flex items-center gap-1.5 ${student.status === 'approved' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-green-200 text-green-600 hover:bg-green-50'}`}
+                              >
+                                {student.status === 'approved' ? <UserMinus size={13} /> : <UserCheck size={13} />}
+                                <span>{student.status === 'approved' ? 'Suspend' : 'Activate'}</span>
+                              </button>
+                              <button onClick={() => handleDeleteStudent(student.id)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg">
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TEACHERS TAB */}
+              {activeUserTab === 'teachers' && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-bold text-dark-900">Approved Teachers</h4>
+                    <button onClick={() => setIsTeacherModalOpen(true)} className="tomato-btn py-2 text-xs flex items-center gap-1">
+                      <Plus size={14} /> <span>Add Teacher</span>
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto border border-gray-150 rounded-xl">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-150 text-gray-500 font-bold uppercase tracking-wider">
+                          <th className="p-4">Name</th>
+                          <th className="p-4">Email</th>
+                          <th className="p-4">Status</th>
+                          <th className="p-4">Joined Date</th>
+                          <th className="p-4 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-150">
+                        {teachers.filter(t => t.status !== 'pending').map(teacher => (
+                          <tr key={teacher.id} className="hover:bg-gray-50/50">
+                            <td className="p-4 font-bold text-dark-900">{teacher.name}</td>
+                            <td className="p-4">{teacher.email}</td>
+                            <td className="p-4">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${teacher.status === 'approved' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                                {teacher.status}
+                              </span>
+                            </td>
+                            <td className="p-4">{new Date(teacher.joining_date).toLocaleDateString()}</td>
+                            <td className="p-4 flex justify-center gap-2">
+                              <button
+                                onClick={() => handleUpdateTeacherStatus(teacher.id, teacher.status)}
+                                className={`px-3 py-1.5 rounded-lg border font-semibold flex items-center gap-1.5 ${teacher.status === 'approved' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-green-200 text-green-600 hover:bg-green-50'}`}
+                              >
+                                {teacher.status === 'approved' ? <UserMinus size={13} /> : <UserCheck size={13} />}
+                                <span>{teacher.status === 'approved' ? 'Suspend' : 'Activate'}</span>
+                              </button>
+                              <button onClick={() => handleDeleteTeacher(teacher.id)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg">
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: ADMINS */}
+          {activeTab === 'admins' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-dark-900">System Administrators ({admins.length})</h3>
+                <button 
+                  onClick={() => setIsAdminModalOpen(true)}
+                  className="tomato-btn py-2 text-xs flex items-center gap-1"
+                >
+                  <Plus size={14} />
+                  <span>Add Admin</span>
+                </button>
+              </div>
+
+              <div className="overflow-x-auto border border-gray-150 rounded-xl">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-150 text-gray-500 font-bold uppercase tracking-wider">
+                      <th className="p-4">Name</th>
+                      <th className="p-4">Email</th>
+                      <th className="p-4">Role</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-150">
+                    {admins.map(admin => (
+                      <tr key={admin.id} className="hover:bg-gray-50/50">
+                        <td className="p-4 font-bold text-dark-900">{admin.name} {admin.id === profile.id && '(You)'}</td>
+                        <td className="p-4">{admin.email}</td>
+                        <td className="p-4"><span className="bg-gray-100 text-gray-600 border border-gray-200 px-2 py-1 rounded-full text-[10px] font-bold">Admin</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -744,7 +544,6 @@ export default function AdminDashboard() {
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition"
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Email Address</label>
                   <input
@@ -755,18 +554,25 @@ export default function AdminDashboard() {
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition"
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Change Password (Leave blank to keep current)</label>
-                  <input
-                    type="password"
-                    placeholder="••••••••"
-                    value={profile.password}
-                    onChange={(e) => setProfile({ ...profile, password: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showProfilePassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={profile.password}
+                      onChange={(e) => setProfile({ ...profile, password: e.target.value })}
+                      className="w-full px-4 pr-10 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowProfilePassword(!showProfilePassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-tomato-500 smooth-transition"
+                    >
+                      {showProfilePassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
                 </div>
-
                 <button type="submit" className="tomato-btn py-3 w-full mt-4">
                   Update Credentials
                 </button>
@@ -776,37 +582,74 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* POPUP MODALS */}
+      {/* MODALS */}
+      {/* Modal: Pending Teachers */}
+      <Modal isOpen={isPendingTeacherModalOpen} onClose={() => setIsPendingTeacherModalOpen(false)} title="Pending Teacher Approvals">
+        <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+          {teachers.filter(t => t.status === 'pending').length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-6">No pending teachers.</p>
+          ) : (
+            teachers.filter(t => t.status === 'pending').map(teacher => (
+              <div key={teacher.id} className="flex justify-between items-center bg-gray-50 border border-gray-200 p-4 rounded-xl">
+                <div>
+                  <h5 className="font-bold text-dark-900 text-sm">{teacher.name}</h5>
+                  <p className="text-xs text-gray-500">{teacher.email}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleUpdateTeacherStatus(teacher.id, 'pending')} className="bg-green-100 text-green-700 p-2 rounded-lg hover:bg-green-200" title="Approve">
+                    <Check size={16} />
+                  </button>
+                  <button onClick={() => handleDeleteTeacher(teacher.id)} className="bg-red-100 text-red-700 p-2 rounded-lg hover:bg-red-200" title="Reject">
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Modal>
+
+      {/* Modal: Add Admin */}
+      <Modal isOpen={isAdminModalOpen} onClose={() => setIsAdminModalOpen(false)} title="Add New Admin">
+        <form onSubmit={handleAddAdmin} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Full Name</label>
+            <input type="text" required value={adminForm.name} onChange={e => setAdminForm({...adminForm, name: e.target.value})} className="w-full px-3 py-2 border rounded-xl text-sm focus:border-tomato-500 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Email Address</label>
+            <input type="email" required value={adminForm.email} onChange={e => setAdminForm({...adminForm, email: e.target.value})} className="w-full px-3 py-2 border rounded-xl text-sm focus:border-tomato-500 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Password</label>
+            <div className="relative">
+              <input type={showAdminPassword ? "text" : "password"} required value={adminForm.password} onChange={e => setAdminForm({...adminForm, password: e.target.value})} className="w-full px-3 pr-10 py-2 border rounded-xl text-sm focus:border-tomato-500 focus:outline-none" />
+              <button type="button" onClick={() => setShowAdminPassword(!showAdminPassword)} className="absolute right-3 top-2.5 text-gray-400 hover:text-tomato-500">{showAdminPassword ? <EyeOff size={16}/> : <Eye size={16}/>}</button>
+            </div>
+          </div>
+          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Add Admin</button>
+        </form>
+      </Modal>
 
       {/* Modal: Add Teacher */}
       <Modal isOpen={isTeacherModalOpen} onClose={() => setIsTeacherModalOpen(false)} title="Add New Teacher">
         <form onSubmit={handleAddTeacher} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Full Name</label>
-            <input 
-              type="text" required placeholder="e.g. Professor Sarah Connor"
-              value={teacherForm.name} 
-              onChange={e => setTeacherForm({ ...teacherForm, name: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+            <input type="text" required value={teacherForm.name} onChange={e => setTeacherForm({ ...teacherForm, name: e.target.value })} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Email Address</label>
-            <input 
-              type="email" required placeholder="e.g. sarah@university.edu"
-              value={teacherForm.email} 
-              onChange={e => setTeacherForm({ ...teacherForm, email: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+            <input type="email" required value={teacherForm.email} onChange={e => setTeacherForm({ ...teacherForm, email: e.target.value })} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Password</label>
-            <input 
-              type="password" required placeholder="••••••••"
-              value={teacherForm.password} 
-              onChange={e => setTeacherForm({ ...teacherForm, password: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+            <div className="relative">
+              <input type={showTeacherPassword ? "text" : "password"} required value={teacherForm.password} onChange={e => setTeacherForm({ ...teacherForm, password: e.target.value })} className="w-full px-3 pr-10 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500" />
+              <button type="button" onClick={() => setShowTeacherPassword(!showTeacherPassword)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-tomato-500">
+                {showTeacherPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Submit (Approve Directly)</button>
         </form>
@@ -817,191 +660,28 @@ export default function AdminDashboard() {
         <form onSubmit={handleAddStudent} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Student ID</label>
-            <input 
-              type="text" required placeholder="e.g. STU2050"
-              value={studentForm.id} 
-              onChange={e => setStudentForm({ ...studentForm, id: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+            <input type="text" required value={studentForm.id} onChange={e => setStudentForm({ ...studentForm, id: e.target.value })} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Full Name</label>
-            <input 
-              type="text" required placeholder="e.g. John Miller"
-              value={studentForm.name} 
-              onChange={e => setStudentForm({ ...studentForm, name: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+            <input type="text" required value={studentForm.name} onChange={e => setStudentForm({ ...studentForm, name: e.target.value })} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Email Address</label>
-            <input 
-              type="email" required placeholder="e.g. john@student.edu"
-              value={studentForm.email} 
-              onChange={e => setStudentForm({ ...studentForm, email: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+            <input type="email" required value={studentForm.email} onChange={e => setStudentForm({ ...studentForm, email: e.target.value })} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Password</label>
-            <input 
-              type="password" required placeholder="••••••••"
-              value={studentForm.password} 
-              onChange={e => setStudentForm({ ...studentForm, password: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+            <div className="relative">
+              <input type={showStudentPassword ? "text" : "password"} required value={studentForm.password} onChange={e => setStudentForm({ ...studentForm, password: e.target.value })} className="w-full px-3 pr-10 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500" />
+              <button type="button" onClick={() => setShowStudentPassword(!showStudentPassword)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-tomato-500">
+                {showStudentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Submit (Approve Directly)</button>
         </form>
       </Modal>
-
-      {/* Modal: Create Course */}
-      <Modal isOpen={isCourseModalOpen} onClose={() => setIsCourseModalOpen(false)} title="Create New Course">
-        <form onSubmit={handleAddCourse} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Course Code</label>
-            <input 
-              type="text" required placeholder="e.g. CS101"
-              value={courseForm.code} 
-              onChange={e => setCourseForm({ ...courseForm, code: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Course Title</label>
-            <input 
-              type="text" required placeholder="e.g. Introduction to Programming"
-              value={courseForm.name} 
-              onChange={e => setCourseForm({ ...courseForm, name: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Course Description</label>
-            <textarea 
-              placeholder="Brief course objectives and syllabus details..."
-              value={courseForm.description} 
-              onChange={e => setCourseForm({ ...courseForm, description: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition h-24 resize-none"
-            />
-          </div>
-          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Create Course</button>
-        </form>
-      </Modal>
-
-      {/* Modal: Assign Instructor */}
-      <Modal isOpen={isAssignModalOpen} onClose={() => setIsAssignModalOpen(false)} title="Assign Teacher to Course">
-        <form onSubmit={handleAssignTeacher} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Course</label>
-            <select
-              required
-              value={assignForm.courseId}
-              onChange={e => setAssignForm({ ...assignForm, courseId: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            >
-              <option value="">-- Choose Course --</option>
-              {courses.map(course => (
-                <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Teacher</label>
-            <select
-              required
-              value={assignForm.teacherId}
-              onChange={e => setAssignForm({ ...assignForm, teacherId: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            >
-              <option value="">-- Choose Teacher --</option>
-              {teachers.filter(t => t.status === 'approved').map(t => (
-                <option key={t.id} value={t.id}>{t.name} ({t.email})</option>
-              ))}
-            </select>
-          </div>
-          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Assign Teacher</button>
-        </form>
-      </Modal>
-
-      {/* Modal: Direct Enroll Student */}
-      <Modal isOpen={isEnrollModalOpen} onClose={() => { setIsEnrollModalOpen(false); setSelectedStudentIds([]); setStudentSearchQuery(''); }} title="Direct Enroll Students (Bulk)">
-        <form onSubmit={handleEnrollStudent} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Course</label>
-            <select
-              required
-              value={enrollForm.courseId}
-              onChange={e => setEnrollForm({ ...enrollForm, courseId: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            >
-              <option value="">-- Choose Course --</option>
-              {courses.map(course => (
-                <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Students</label>
-            
-            {/* Search Box */}
-            <input 
-              type="text"
-              placeholder="Search student by name or ID..."
-              value={studentSearchQuery}
-              onChange={(e) => setStudentSearchQuery(e.target.value)}
-              className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 focus:border-tomato-500 focus:bg-white rounded-xl text-xs focus:outline-none mb-3 smooth-transition"
-            />
-            
-            {/* Select All Toggle Header */}
-            <div className="flex items-center justify-between mb-2 px-1 text-[11px] font-semibold text-gray-500">
-              <span>{filteredStudentsForEnroll.length} approved student(s) found</span>
-              {filteredStudentsForEnroll.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleToggleSelectAll}
-                  className="text-tomato-500 hover:text-tomato-650 font-bold transition-colors"
-                >
-                  {selectedStudentIds.length === filteredStudentsForEnroll.length ? 'Deselect All' : 'Select All'}
-                </button>
-              )}
-            </div>
-
-            {/* Checkbox List */}
-            <div className="border border-gray-150 rounded-xl max-h-48 overflow-y-auto p-3 bg-gray-50/30 space-y-2">
-              {filteredStudentsForEnroll.map(student => {
-                const isChecked = selectedStudentIds.includes(student.id);
-                return (
-                  <label 
-                    key={student.id} 
-                    className={`flex items-center gap-3 p-2 border rounded-xl cursor-pointer smooth-transition ${
-                      isChecked ? 'border-tomato-300 bg-tomato-50/10' : 'bg-white border-gray-100 hover:border-tomato-200'
-                    }`}
-                  >
-                    <input 
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => handleStudentCheckboxChange(student.id)}
-                      className="accent-tomato-500 w-4 h-4 rounded cursor-pointer"
-                    />
-                    <div className="text-[11px] leading-tight">
-                      <span className="font-bold text-dark-900 block">{student.name}</span>
-                      <span className="font-mono text-gray-400 font-semibold">{student.id}</span>
-                    </div>
-                  </label>
-                );
-              })}
-              {filteredStudentsForEnroll.length === 0 && (
-                <p className="text-center text-[11px] text-gray-405 py-6">No matching approved students found.</p>
-              )}
-            </div>
-          </div>
-          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">
-            Enroll Selected Students ({selectedStudentIds.length})
-          </button>
-        </form>
-      </Modal>
-
     </div>
   );
 }

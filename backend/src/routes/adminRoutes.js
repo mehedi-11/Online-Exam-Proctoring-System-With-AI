@@ -10,6 +10,13 @@ router.use(verifyToken, authorizeRoles('admin'));
 router.get('/profile', adminController.getProfile);
 router.put('/profile', adminController.updateProfile);
 
+// Dashboard Stats
+router.get('/dashboard-stats', adminController.getDashboardStats);
+
+// Admin management
+router.get('/admins', adminController.getAdmins);
+router.post('/admins', adminController.addAdmin);
+
 // Teacher management
 router.get('/teachers', adminController.getTeachers);
 router.post('/teachers', adminController.addTeacher);
@@ -22,16 +29,6 @@ router.post('/students', adminController.addStudent);
 router.put('/students/:id/status', adminController.updateStudentStatus);
 router.delete('/students/:id', adminController.deleteStudent);
 
-// Course management
-router.get('/courses', adminController.getCourses);
-router.post('/courses', adminController.createCourse);
-router.put('/courses/:id', adminController.updateCourse);
-router.delete('/courses/:id', adminController.deleteCourse);
 
-// Course assignments & enrollments
-router.post('/courses/assign-teacher', adminController.assignTeacher);
-router.post('/courses/enroll-student', adminController.enrollStudent);
-router.get('/enrollments/pending', adminController.getPendingEnrollments);
-router.post('/enrollments/approve', adminController.approveEnrollment);
 
 module.exports = router;

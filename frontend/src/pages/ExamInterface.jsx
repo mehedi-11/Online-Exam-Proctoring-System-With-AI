@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Camera, ShieldAlert, AlertTriangle, Play, HelpCircle, 
@@ -10,6 +10,10 @@ import Navbar from '../components/Navbar';
 export default function ExamInterface() {
   const { examId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Retrieve password from state or sessionStorage
+  const password = location.state?.password || sessionStorage.getItem(`exam_pwd_${examId}`) || '';
   const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -50,35 +54,37 @@ export default function ExamInterface() {
     };
   }, [examId]);
 
-  // 2. Client-side cheating triggers (Copy/Paste hooks)
+  // 2. Client-side cheating triggers (Copy/Paste hooks, Focus tracking)
   useEffect(() => {
     if (!examStarted || isBlocked) return;
 
-    // Detect Copy shortcut (Ctrl+C / Cmd+C)
+    // Detect Copy shortcut (Ctrl+C / Cmd+C / Ctrl+V)
     const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-        logCheating('shortcut copy', 'Student attempted Ctrl+C/Cmd+C question copy shortcut.');
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'v' || e.key.toLowerCase() === 'x')) {
+        logCheating('Shortcut Activity', 'Student attempted Ctrl+C/V/X shortcut.');
       }
     };
 
-    // Detect Manual Copy selection
-    const handleCopy = (e) => {
-      logCheating('manual copy', 'Student attempted manual selection copy.');
+    // Detect Tab Switching
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        logCheating('Tab Switching', 'Student switched to another tab or minimized the window.');
+      }
     };
 
-    // Detect Paste inside input field
-    const handlePaste = (e) => {
-      logCheating('pasting answer', 'Student attempted pasting text inside answer response fields.');
+    // Detect clicking outside the window
+    const handleWindowBlur = () => {
+      logCheating('Window Blur', 'Student clicked outside the exam window or lost focus.');
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('copy', handleCopy);
-    window.addEventListener('paste', handlePaste);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('copy', handleCopy);
-      window.removeEventListener('paste', handlePaste);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
     };
   }, [examStarted, isBlocked]);
 
@@ -132,7 +138,7 @@ export default function ExamInterface() {
     setError('');
     try {
       // Start/Get exam attempt
-      const attemptRes = await api.post(`http://localhost:5000/api/student/exams/${examId}/start`);
+      const attemptRes = await api.post(`http://localhost:5000/api/student/exams/${examId}/start`, { exam_password: password });
       const attempt = attemptRes.data;
 
       setDemerits(attempt.demerit_points);
@@ -238,6 +244,11 @@ export default function ExamInterface() {
     setAnswers({ ...answers, [questionId]: option });
   };
 
+  const handleClipboard = (e) => {
+    e.preventDefault();
+    logCheating('Clipboard Activity', 'Student attempted to use copy/cut/paste on the exam page');
+  };
+
   // Helper formatting seconds -> MM:SS
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
@@ -246,7 +257,12 @@ export default function ExamInterface() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col relative select-none">
+    <div 
+      className="min-h-screen bg-gray-50 flex flex-col font-sans"
+      onCopy={handleClipboard}
+      onCut={handleClipboard}
+      onPaste={handleClipboard}
+    >
       {/* Block Lock Overlay Screen */}
       {isBlocked && (
         <div className="fixed inset-0 z-50 bg-dark-900/95 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 select-none animate-fade-in">
@@ -343,35 +359,46 @@ export default function ExamInterface() {
                   <h4 className="font-bold text-dark-900 text-sm mb-4 leading-relaxed">
                     Question {idx + 1}: {q.question_text}
                   </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {[
-                      { key: 'A', text: q.option_a },
-                      { key: 'B', text: q.option_b },
-                      { key: 'C', text: q.option_c },
-                      { key: 'D', text: q.option_d }
-                    ].map(opt => {
-                      const isSelected = answers[q.id] === opt.key;
-                      return (
-                        <div 
-                          key={opt.key}
-                          onClick={() => handleOptionChange(q.id, opt.key)}
-                          className={`flex items-center gap-3 p-3.5 border rounded-xl cursor-pointer smooth-transition ${
-                            isSelected 
-                              ? 'border-tomato-500 bg-tomato-50/15 font-semibold text-tomato-800' 
-                              : 'border-gray-100 hover:border-tomato-200 hover:bg-gray-50/50 text-gray-650'
-                          }`}
-                        >
-                          <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-extrabold border ${
-                            isSelected 
-                              ? 'bg-tomato-500 border-tomato-500 text-white' 
-                              : 'bg-gray-50 border-gray-200 text-gray-500'
-                          }`}>
-                            {opt.key}
-                          </span>
-                          <span className="text-xs">{opt.text}</span>
-                        </div>
-                      );
-                    })}
+                  <div className="mt-4">
+                    {q.type === 'Written' ? (
+                      <textarea
+                        value={answers[q.id] || ''}
+                        onChange={(e) => handleOptionChange(q.id, e.target.value)}
+                        placeholder="Type your answer here..."
+                        className="w-full h-32 p-3 border border-gray-200 rounded-xl focus:outline-none focus:border-tomato-500 text-sm resize-none"
+                      ></textarea>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {[
+                          { key: 'A', text: q.option_a },
+                          { key: 'B', text: q.option_b },
+                          { key: 'C', text: q.option_c },
+                          { key: 'D', text: q.option_d }
+                        ].map(opt => {
+                          const isSelected = answers[q.id] === opt.key;
+                          return (
+                            <div 
+                              key={opt.key}
+                              onClick={() => handleOptionChange(q.id, opt.key)}
+                              className={`flex items-center gap-3 p-3.5 border rounded-xl cursor-pointer smooth-transition ${
+                                isSelected 
+                                  ? 'border-tomato-500 bg-tomato-50/15 font-semibold text-tomato-800' 
+                                  : 'border-gray-100 hover:border-tomato-200 hover:bg-gray-50/50 text-gray-650'
+                              }`}
+                            >
+                              <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-extrabold border ${
+                                isSelected 
+                                  ? 'bg-tomato-500 border-tomato-500 text-white' 
+                                  : 'bg-gray-50 border-gray-200 text-gray-500'
+                              }`}>
+                                {opt.key}
+                              </span>
+                              <span className="text-xs">{opt.text}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

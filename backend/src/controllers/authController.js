@@ -51,10 +51,10 @@ exports.registerStudent = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     await db.query(
       'INSERT INTO students (id, name, email, password, status) VALUES (?, ?, ?, ?, ?)',
-      [id, name, email, hashedPassword, 'pending']
+      [id, name, email, hashedPassword, 'approved']
     );
 
-    return res.status(201).json({ message: 'Student registration request submitted. Awaiting Admin approval.' });
+    return res.status(201).json({ message: 'Student registration successful. You can now login.' });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Server error during student registration' });

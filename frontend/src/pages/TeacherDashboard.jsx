@@ -4,27 +4,32 @@ import axios from 'axios';
 import { 
   BookOpen, Plus, Calendar, Clock, FileQuestion, Trash2, Check,
   Camera, AlertCircle, RefreshCw, Download, Trash, Award,
-  Menu, LogOut
+  Menu, LogOut, Edit, Play, ShieldAlert, FileText, Activity, Users, Settings, Key
 } from 'lucide-react';
 import Modal from '../components/Modal';
 
 export default function TeacherDashboard() {
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
-  const [activeTab, setActiveTab] = useState('logs');
+  const [activeTab, setActiveTab] = useState('add_exam');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Data State
-  const [courses, setCourses] = useState([]);
   const [exams, setExams] = useState([]);
   const [proctoringLogs, setProctoringLogs] = useState([]);
-  const [pendingEnrollments, setPendingEnrollments] = useState([]);
   const [rawLogs, setRawLogs] = useState('');
-  const [profile, setProfile] = useState({ name: '', email: '', profile_image: '', joining_date: '' });
+  const [profile, setProfile] = useState({ name: '', email: '', profile_image: '', llm_api_key: '', joining_date: '' });
 
   // Question Management State
   const [selectedExamId, setSelectedExamId] = useState('');
   const [questions, setQuestions] = useState([]);
+
+  // Results State
+  const [selectedResultExamId, setSelectedResultExamId] = useState('');
+  const [examResults, setExamResults] = useState([]);
+  const [selectedStudentForAnswers, setSelectedStudentForAnswers] = useState(null);
+  const [studentAnswers, setStudentAnswers] = useState([]);
+  const [manualGrades, setManualGrades] = useState({});
 
   // UI State
   const [loading, setLoading] = useState(false);
@@ -34,14 +39,22 @@ export default function TeacherDashboard() {
   // Modals
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
-  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+  const [isLiveModalOpen, setIsLiveModalOpen] = useState(false);
+  const [isAnswersModalOpen, setIsAnswersModalOpen] = useState(false);
 
-  // Form Fields
-  const [examForm, setExamForm] = useState({ course_id: '', title: '', exam_date: '', duration_minutes: '' });
-  const [questionForm, setQuestionForm] = useState({ question_text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_option: 'A' });
-  const [enrollForm, setEnrollForm] = useState({ courseId: '', studentId: '' });
+  // Forms
+  const [examForm, setExamForm] = useState({ id: null, title: '', exam_date: '', duration_minutes: '', type: 'MCQ', must_on_camera: true, must_on_microphone: true });
+  const [isEditingExam, setIsEditingExam] = useState(false);
+  
+  const [questionTab, setQuestionTab] = useState('MCQ');
+  const [questionForm, setQuestionForm] = useState({ id: null, question_text: '', marks: 1, option_a: '', option_b: '', option_c: '', option_d: '', correct_option: 'A' });
+  const [isEditingQuestion, setIsEditingQuestion] = useState(false);
+
+  const [liveForm, setLiveForm] = useState({ password: '' });
+
   const [profileImageFile, setProfileImageFile] = useState(null);
   const [profileName, setProfileName] = useState('');
+  const [profileApiKey, setProfileApiKey] = useState('');
 
   const api = axios.create({
     headers: { Authorization: `Bearer ${token}` }
@@ -53,7 +66,6 @@ export default function TeacherDashboard() {
       return;
     }
     fetchData();
-    // Poll proctoring logs and raw log files every 4 seconds to simulate "real-time" alerts
     const timer = setInterval(() => {
       fetchProctoringData();
     }, 4000);
@@ -64,16 +76,15 @@ export default function TeacherDashboard() {
     setLoading(true);
     setError('');
     try {
-      const [cRes, eRes, pRes] = await Promise.all([
-        api.get('http://localhost:5000/api/teacher/courses'),
+      const [eRes, pRes] = await Promise.all([
         api.get('http://localhost:5000/api/teacher/exams'),
         api.get('http://localhost:5000/api/teacher/profile')
       ]);
 
-      setCourses(cRes.data);
       setExams(eRes.data);
       setProfile(pRes.data);
       setProfileName(pRes.data.name);
+      setProfileApiKey(pRes.data.llm_api_key || '');
 
       await fetchProctoringData();
     } catch (err) {
@@ -91,14 +102,12 @@ export default function TeacherDashboard() {
 
   const fetchProctoringData = async () => {
     try {
-      const [lRes, rRes, peRes] = await Promise.all([
+      const [lRes, rRes] = await Promise.all([
         api.get('http://localhost:5000/api/teacher/proctoring-logs'),
-        api.get('http://localhost:5000/api/proctor/raw-logs'),
-        api.get('http://localhost:5000/api/teacher/enrollments/pending')
+        api.get('http://localhost:5000/api/proctor/raw-logs')
       ]);
       setProctoringLogs(lRes.data);
       setRawLogs(rRes.data.logs);
-      setPendingEnrollments(peRes.data);
     } catch (err) {
       console.error('Error fetching real-time proctor logs:', err);
     }
@@ -115,6 +124,7 @@ export default function TeacherDashboard() {
     setError('');
     const formData = new FormData();
     formData.append('name', profileName);
+    formData.append('llm_api_key', profileApiKey);
     if (profileImageFile) {
       formData.append('profile_image', profileImageFile);
     }
@@ -127,21 +137,25 @@ export default function TeacherDashboard() {
       setProfile(res.data.user);
       localStorage.setItem('user', JSON.stringify(res.data.user));
     } catch (err) {
-      setError('Error updating profile picture or details.');
+      setError('Error updating profile details.');
     }
   };
 
   // --- Exam Actions ---
-  const handleCreateExam = async (e) => {
+  const handleSaveExam = async (e) => {
     e.preventDefault();
     try {
-      await api.post('http://localhost:5000/api/teacher/exams', examForm);
+      if (isEditingExam) {
+        await api.put(`http://localhost:5000/api/teacher/exams/${examForm.id}`, examForm);
+        triggerSuccess('Exam updated successfully');
+      } else {
+        await api.post('http://localhost:5000/api/teacher/exams', examForm);
+        triggerSuccess('Exam scheduled successfully');
+      }
       setIsExamModalOpen(false);
-      setExamForm({ course_id: '', title: '', exam_date: '', duration_minutes: '' });
-      triggerSuccess('Exam scheduled successfully');
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Error creating exam');
+      setError(err.response?.data?.message || 'Error saving exam');
     }
   };
 
@@ -155,8 +169,41 @@ export default function TeacherDashboard() {
         setQuestions([]);
         setSelectedExamId('');
       }
+      if (selectedResultExamId === id) {
+        setExamResults([]);
+        setSelectedResultExamId('');
+      }
     } catch (err) {
       setError('Error deleting exam');
+    }
+  };
+
+  const handleMakeLiveSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post(`http://localhost:5000/api/teacher/exams/${examForm.id}/live`, {
+        is_live: true,
+        exam_password: liveForm.password
+      });
+      setIsLiveModalOpen(false);
+      triggerSuccess('Exam is now Live!');
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error making exam live');
+    }
+  };
+
+  const handleStopLive = async (id) => {
+    if (!window.confirm('Stop this exam? Students will no longer be able to enter.')) return;
+    try {
+      await api.post(`http://localhost:5000/api/teacher/exams/${id}/live`, {
+        is_live: false,
+        exam_password: ''
+      });
+      triggerSuccess('Exam stopped.');
+      fetchData();
+    } catch (err) {
+      setError('Error stopping exam');
     }
   };
 
@@ -171,24 +218,32 @@ export default function TeacherDashboard() {
     }
   };
 
-  const handleAddQuestion = async (e) => {
+  const handleSaveQuestion = async (e) => {
     e.preventDefault();
     try {
-      await api.post('http://localhost:5000/api/teacher/questions', {
+      const payload = {
         ...questionForm,
-        exam_id: selectedExamId
-      });
+        exam_id: selectedExamId,
+        type: questionTab
+      };
+
+      if (isEditingQuestion) {
+        await api.put(`http://localhost:5000/api/teacher/questions/${questionForm.id}`, payload);
+        triggerSuccess('Question updated');
+      } else {
+        await api.post('http://localhost:5000/api/teacher/questions', payload);
+        triggerSuccess('Question added');
+      }
       setIsQuestionModalOpen(false);
-      setQuestionForm({ question_text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_option: 'A' });
-      triggerSuccess('Question added');
       fetchQuestions(selectedExamId);
       fetchData(); // Reload counts
     } catch (err) {
-      setError(err.response?.data?.message || 'Error adding question');
+      setError(err.response?.data?.message || 'Error saving question');
     }
   };
 
   const handleDeleteQuestion = async (id) => {
+    if (!window.confirm('Delete this question?')) return;
     try {
       await api.delete(`http://localhost:5000/api/teacher/questions/${id}`);
       triggerSuccess('Question deleted');
@@ -199,41 +254,70 @@ export default function TeacherDashboard() {
     }
   };
 
-  // --- Student Enrollment Actions ---
-  const handleDirectEnroll = async (e) => {
-    e.preventDefault();
+  // --- Exam Results Actions ---
+  const fetchExamResults = async (examId) => {
+    setSelectedResultExamId(examId);
     try {
-      await api.post('http://localhost:5000/api/teacher/courses/enroll-student', enrollForm);
-      setIsEnrollModalOpen(false);
-      setEnrollForm({ courseId: '', studentId: '' });
-      triggerSuccess('Student enrolled successfully');
-      fetchData();
+      const res = await api.get(`http://localhost:5000/api/teacher/exams/${examId}/results`);
+      setExamResults(res.data);
     } catch (err) {
-      setError(err.response?.data?.message || 'Error enrolling student');
+      setError('Error fetching exam results');
     }
   };
 
-  const handleApproveEnrollment = async (courseId, studentId) => {
+  const handleViewAnswers = async (studentId, studentName) => {
+    setSelectedStudentForAnswers({ id: studentId, name: studentName });
+    setManualGrades({});
     try {
-      await api.post('http://localhost:5000/api/teacher/courses/approve-enrollment', { courseId, studentId });
-      triggerSuccess('Enrollment approved');
-      fetchData();
+      const res = await api.get(`http://localhost:5000/api/teacher/exams/${selectedResultExamId}/students/${studentId}/answers`);
+      setStudentAnswers(res.data);
+      setIsAnswersModalOpen(true);
     } catch (err) {
-      setError('Error approving student');
+      setError('Error fetching student answers');
     }
   };
 
-  // --- Raw Log Actions ---
-  const handleClearLogs = async () => {
-    if (!window.confirm('Wipe the physical cheating logs file? This cannot be undone.')) return;
+  const handleManualGradeSubmit = async () => {
     try {
-      await api.delete('http://localhost:5000/api/proctor/raw-logs');
-      triggerSuccess('Physical log file cleared');
-      fetchProctoringData();
+      const res = await api.post(`http://localhost:5000/api/teacher/exams/${selectedResultExamId}/students/${selectedStudentForAnswers.id}/grade/manual`, {
+        grades: manualGrades
+      });
+      triggerSuccess(`Manual grading saved. Total Score: ${res.data.score}`);
+      setIsAnswersModalOpen(false);
+      fetchExamResults(selectedResultExamId);
     } catch (err) {
-      setError('Failed to clear logs');
+      setError('Error saving manual grades');
     }
   };
+
+  const handleAiMarking = async () => {
+    if (!profileApiKey) {
+      alert("Please configure your LLM API Key in Instructor Settings first.");
+      return;
+    }
+    
+    const gradesData = studentAnswers.map(ans => ({
+      answer_id: ans.answer_id,
+      question_text: ans.question_text,
+      student_answer: ans.student_answer,
+      max_marks: ans.max_marks
+    }));
+
+    setLoading(true);
+    try {
+      const res = await api.post(`http://localhost:5000/api/teacher/exams/${selectedResultExamId}/students/${selectedStudentForAnswers.id}/grade/ai`, {
+        gradesData
+      });
+      triggerSuccess(`AI Marking Complete! Total Score: ${res.data.score}`);
+      setIsAnswersModalOpen(false);
+      fetchExamResults(selectedResultExamId);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error running AI Marker');
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   // Raw download file
   const downloadLogs = () => {
@@ -245,6 +329,17 @@ export default function TeacherDashboard() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleClearLogs = async () => {
+    if (!window.confirm('Are you sure you want to permanently clear the proctoring log file?')) return;
+    try {
+      await api.delete('http://localhost:5000/api/proctor/raw-logs');
+      setRawLogs('');
+      triggerSuccess('Logs cleared successfully.');
+    } catch (err) {
+      setError('Error clearing logs');
+    }
   };
 
   return (
@@ -287,10 +382,11 @@ export default function TeacherDashboard() {
           {/* Navigation Links */}
           <div className="p-4 space-y-1.5">
             {[
-              { id: 'logs', label: 'AI Proctor Alerts Feed', icon: AlertCircle },
-              { id: 'exams', label: 'Exams & Question Bank', icon: FileQuestion },
-              { id: 'enrollments', label: 'Students & Enrollments', icon: BookOpen },
-              { id: 'profile', label: 'Instructor Settings', icon: Camera }
+              { id: 'add_exam', label: 'Manage Exams', icon: FileText },
+              { id: 'set_questions', label: 'Set Questions', icon: FileQuestion },
+              { id: 'exam_results', label: 'Exam Results', icon: Award },
+              { id: 'logs', label: 'Proctor Alerts Feed', icon: ShieldAlert },
+              { id: 'profile', label: 'Instructor Settings', icon: Settings }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -383,9 +479,326 @@ export default function TeacherDashboard() {
           </div>
         )}
 
+        {/* Dashboard Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm flex items-center gap-4">
+             <div className="w-12 h-12 rounded-xl bg-tomato-50 text-tomato-500 flex items-center justify-center">
+               <FileText size={24} />
+             </div>
+             <div>
+               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Exams</p>
+               <h3 className="text-2xl font-extrabold text-dark-900">{exams.length}</h3>
+             </div>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm flex items-center gap-4">
+             <div className="w-12 h-12 rounded-xl bg-green-50 text-green-500 flex items-center justify-center">
+               <FileQuestion size={24} />
+             </div>
+             <div>
+               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Questions</p>
+               <h3 className="text-2xl font-extrabold text-dark-900">
+                 {exams.reduce((sum, e) => sum + e.questions_count, 0)}
+               </h3>
+             </div>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm flex items-center gap-4">
+             <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-500 flex items-center justify-center">
+               <Activity size={24} />
+             </div>
+             <div>
+               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Submissions</p>
+               <h3 className="text-2xl font-extrabold text-dark-900">
+                 {exams.reduce((sum, e) => sum + e.submissions_count, 0)}
+               </h3>
+             </div>
+          </div>
+        </div>
+
         {/* Dynamic Panel */}
         <div className="bg-white rounded-2xl border border-gray-150 p-6 md:p-8 shadow-sm">
           
+          {/* TAB: ADD EXAM */}
+          {activeTab === 'add_exam' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex justify-between items-center flex-wrap gap-4">
+                <h3 className="text-lg font-bold text-dark-900">Manage Exams</h3>
+                <button 
+                  onClick={() => {
+                    setExamForm({ id: null, title: '', exam_date: '', duration_minutes: '', type: 'MCQ', must_on_camera: true, must_on_microphone: true });
+                    setIsEditingExam(false);
+                    setIsExamModalOpen(true);
+                  }}
+                  className="tomato-btn py-2 text-xs flex items-center gap-1"
+                >
+                  <Plus size={14} />
+                  <span>Create Exam</span>
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest">Exam Title</th>
+                      <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest">Date & Time</th>
+                      <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest">Type</th>
+                      <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest">Status</th>
+                      <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exams.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="py-8 text-center text-xs text-gray-400">No exams found. Create one to get started.</td>
+                      </tr>
+                    ) : (
+                      exams.map(exam => (
+                        <tr key={exam.id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                          <td className="py-3 px-4 font-bold text-sm text-dark-900">{exam.title}</td>
+                          <td className="py-3 px-4 text-xs text-gray-600">
+                            {new Date(exam.exam_date).toLocaleString()}<br/>
+                            <span className="text-gray-400">Duration: {exam.duration_minutes}m</span>
+                          </td>
+                          <td className="py-3 px-4 text-xs font-semibold text-gray-600">{exam.type}</td>
+                          <td className="py-3 px-4">
+                            {exam.is_live ? (
+                              <span className="px-2.5 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-full flex items-center gap-1 w-max">
+                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                                LIVE
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-full w-max">
+                                OFFLINE
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right space-x-2">
+                            {exam.is_live ? (
+                              <button onClick={() => handleStopLive(exam.id)} className="px-3 py-1.5 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg text-xs font-bold transition-colors">
+                                Stop
+                              </button>
+                            ) : (
+                              <button onClick={() => { setExamForm({id: exam.id}); setLiveForm({password:''}); setIsLiveModalOpen(true); }} className="px-3 py-1.5 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-xs font-bold flex inline-flex items-center gap-1 transition-colors">
+                                <Play size={12} /> Make Live
+                              </button>
+                            )}
+                            <button onClick={() => {
+                              setExamForm({
+                                id: exam.id,
+                                title: exam.title,
+                                exam_date: new Date(exam.exam_date).toISOString().slice(0, 16),
+                                duration_minutes: exam.duration_minutes,
+                                type: exam.type,
+                                must_on_camera: exam.must_on_camera === 1 || exam.must_on_camera === true,
+                                must_on_microphone: exam.must_on_microphone === 1 || exam.must_on_microphone === true
+                              });
+                              setIsEditingExam(true);
+                              setIsExamModalOpen(true);
+                            }} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors">
+                              <Edit size={16} />
+                            </button>
+                            <button onClick={() => handleDeleteExam(exam.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SET QUESTIONS */}
+          {activeTab === 'set_questions' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex items-center gap-4 border-b border-gray-150 pb-6">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-widest mb-2">Select Exam to Manage Questions</label>
+                  <select 
+                    value={selectedExamId}
+                    onChange={(e) => {
+                      setSelectedExamId(e.target.value);
+                      if (e.target.value) fetchQuestions(e.target.value);
+                      else setQuestions([]);
+                    }}
+                    className="w-full max-w-md px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 transition-colors"
+                  >
+                    <option value="">-- Choose an Exam --</option>
+                    {exams.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
+                  </select>
+                </div>
+                {selectedExamId && (
+                  <button 
+                    onClick={() => {
+                      setQuestionForm({ id: null, question_text: '', marks: 1, option_a: '', option_b: '', option_c: '', option_d: '', correct_option: 'A' });
+                      setIsEditingQuestion(false);
+                      setIsQuestionModalOpen(true);
+                    }}
+                    className="tomato-btn py-2 mt-6 text-xs flex items-center gap-1 shrink-0"
+                  >
+                    <Plus size={14} />
+                    <span>Add Question</span>
+                  </button>
+                )}
+              </div>
+
+              {selectedExamId ? (
+                questions.length === 0 ? (
+                  <div className="border border-dashed border-gray-200 bg-gray-50/50 py-12 rounded-xl text-center text-xs text-gray-400">
+                    No questions added to this exam yet.
+                  </div>
+                ) : (
+                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                    {questions.map((q, qidx) => (
+                      <div key={q.id} className="border border-gray-150 bg-white p-5 rounded-xl relative hover:border-gray-300 transition-colors">
+                        <div className="absolute top-4 right-4 flex gap-2">
+                          <button 
+                            onClick={() => {
+                              setQuestionTab(q.type);
+                              setQuestionForm({
+                                id: q.id,
+                                question_text: q.question_text,
+                                marks: q.marks,
+                                option_a: q.option_a || '',
+                                option_b: q.option_b || '',
+                                option_c: q.option_c || '',
+                                option_d: q.option_d || '',
+                                correct_option: q.correct_option || 'A'
+                              });
+                              setIsEditingQuestion(true);
+                              setIsQuestionModalOpen(true);
+                            }}
+                            className="text-blue-500 hover:text-blue-700"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteQuestion(q.id)}
+                            className="text-gray-300 hover:text-red-500"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                        
+                        <div className="flex items-start gap-3 mb-3 pr-16">
+                          <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">
+                            {q.type}
+                          </span>
+                          <span className="bg-tomato-50 text-tomato-600 border border-tomato-100 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">
+                            {q.marks} Mark(s)
+                          </span>
+                          <p className="font-bold text-sm text-dark-900 leading-tight">
+                            Q{qidx + 1}: {q.question_text}
+                          </p>
+                        </div>
+
+                        {q.type === 'MCQ' && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-3 pl-20">
+                            {['A', 'B', 'C', 'D'].map(opt => (
+                              <div key={opt} className={`p-2 rounded-lg border ${q.correct_option === opt ? 'bg-green-50 border-green-200 text-green-700 font-semibold' : 'border-gray-100 text-gray-500'}`}>
+                                {opt}) {q[`option_${opt.toLowerCase()}`]}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {q.type === 'Written' && (
+                          <div className="pl-20">
+                            <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg p-4 text-xs text-gray-400 italic">
+                              Students will type their answer in a text box.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div className="py-24 text-center text-xs text-gray-400">
+                  Please select an exam from the dropdown above.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: EXAM RESULTS */}
+          {activeTab === 'exam_results' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex items-center gap-4 border-b border-gray-150 pb-6">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-widest mb-2">Select Exam to View Results</label>
+                  <select 
+                    value={selectedResultExamId}
+                    onChange={(e) => {
+                      if (e.target.value) fetchExamResults(e.target.value);
+                      else { setSelectedResultExamId(''); setExamResults([]); }
+                    }}
+                    className="w-full max-w-md px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 transition-colors"
+                  >
+                    <option value="">-- Choose an Exam --</option>
+                    {exams.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {selectedResultExamId ? (
+                examResults.length === 0 ? (
+                  <div className="border border-dashed border-gray-200 bg-gray-50/50 py-12 rounded-xl text-center text-xs text-gray-400">
+                    No students have taken this exam yet.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest">Student</th>
+                          <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest">Status</th>
+                          <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest">Marks</th>
+                          <th className="py-3 px-4 font-bold text-xs text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {examResults.map(res => (
+                          <tr key={res.student_id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                            <td className="py-3 px-4">
+                              <p className="font-bold text-sm text-dark-900">{res.name}</p>
+                              <p className="text-[10px] text-gray-400 font-mono">{res.student_id}</p>
+                            </td>
+                            <td className="py-3 px-4 text-xs">
+                              {res.status === 'completed' ? (
+                                <span className="text-green-600 font-bold bg-green-50 px-2 py-1 rounded-lg">Completed</span>
+                              ) : (
+                                <span className="text-orange-500 font-bold bg-orange-50 px-2 py-1 rounded-lg capitalize">{res.status}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-sm font-bold text-dark-900">
+                              {res.score !== null ? res.score : <span className="text-gray-400 italic text-xs font-normal">Pending Review</span>}
+                            </td>
+                            <td className="py-3 px-4 text-right space-x-2">
+                              {res.status === 'completed' && (
+                                <button 
+                                  onClick={() => handleViewAnswers(res.student_id, res.name)}
+                                  className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-[11px] font-bold transition-colors"
+                                >
+                                  View Answersheet
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              ) : (
+                <div className="py-24 text-center text-xs text-gray-400">
+                  Please select an exam to view student results.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* TAB: PROCTOR LOGS */}
           {activeTab === 'logs' && (
             <div className="space-y-8 animate-fade-in">
@@ -395,7 +808,7 @@ export default function TeacherDashboard() {
                     <span className="w-2 h-2 rounded-full bg-tomato-500 animate-pulse"></span>
                     <span>Live Proctoring Activity Stream</span>
                   </h3>
-                  <p className="text-xs text-gray-400">Updates automatically in real time. Aggregates browser copy-pasting and webcam YOLOv8 alerts.</p>
+                  <p className="text-xs text-gray-400">Updates automatically in real time.</p>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={downloadLogs} className="tomato-btn py-1.5 px-3 text-xs flex items-center gap-1.5">
@@ -432,7 +845,7 @@ export default function TeacherDashboard() {
                               <span className="text-[10px] text-gray-400 font-semibold">{new Date(log.timestamp).toLocaleTimeString()}</span>
                             </div>
                             <p className="text-[11px] text-gray-500 mb-1">
-                              Exam: <span className="font-semibold text-dark-900">{log.exam_title}</span> ({log.course_name})
+                              Exam: <span className="font-semibold text-dark-900">{log.exam_title}</span>
                             </p>
                             <p className="text-xs font-semibold text-red-700 capitalize">
                               Cheating flagged: {log.activity_type}
@@ -442,11 +855,6 @@ export default function TeacherDashboard() {
                                 "{log.details}"
                               </p>
                             )}
-                          </div>
-                          <div className="text-right shrink-0">
-                            <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] font-bold">
-                              +{log.demerit_points} Pts
-                            </span>
                           </div>
                         </div>
                       ))}
@@ -465,227 +873,11 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {/* TAB: EXAMS & QUESTION BANK */}
-          {activeTab === 'exams' && (
-            <div className="space-y-8 animate-fade-in">
-              <div className="flex justify-between items-center flex-wrap gap-4">
-                <h3 className="text-lg font-bold text-dark-900">Manage Course Exams</h3>
-                <button 
-                  onClick={() => setIsExamModalOpen(true)}
-                  className="tomato-btn py-2 text-xs flex items-center gap-1"
-                >
-                  <Plus size={14} />
-                  <span>Create Exam Schedule</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Exams List */}
-                <div className="lg:col-span-1 space-y-3">
-                  <h4 className="font-bold text-xs text-gray-400 uppercase tracking-widest mb-2">Select Active Exam</h4>
-                  {exams.length === 0 ? (
-                    <p className="text-xs text-gray-400 py-2">No exams scheduled. Click Create Exam.</p>
-                  ) : (
-                    exams.map(exam => (
-                      <div 
-                        key={exam.id}
-                        onClick={() => fetchQuestions(exam.id)}
-                        className={`p-4 rounded-xl border cursor-pointer smooth-transition flex flex-col justify-between ${
-                          selectedExamId === exam.id
-                            ? 'border-tomato-500 bg-tomato-50/10 shadow-sm'
-                            : 'border-gray-150 hover:border-tomato-300 bg-white'
-                        }`}
-                      >
-                        <div className="flex justify-between items-start gap-2 mb-2">
-                          <span className="bg-gray-100 text-gray-600 px-2.5 py-0.5 rounded text-[10px] font-bold font-mono">
-                            {exam.course_code}
-                          </span>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleDeleteExam(exam.id); }}
-                            className="text-gray-300 hover:text-red-500 smooth-transition p-0.5"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                        <h5 className="font-bold text-xs text-dark-900 mb-2">{exam.title}</h5>
-                        <div className="space-y-1 text-[10px] text-gray-400">
-                          <p className="flex items-center gap-1"><Calendar size={12} /> {new Date(exam.exam_date).toLocaleString()}</p>
-                          <p className="flex items-center gap-1"><Clock size={12} /> {exam.duration_minutes} Mins Duration</p>
-                          <p className="flex items-center gap-1"><FileQuestion size={12} /> {exam.questions_count} Questions Added</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* Question builder panel */}
-                <div className="lg:col-span-2 border border-gray-150 rounded-2xl p-6 bg-gray-50/20">
-                  {selectedExamId ? (
-                    <div className="space-y-6">
-                      <div className="flex justify-between items-center flex-wrap gap-4">
-                        <div>
-                          <h4 className="font-bold text-sm text-dark-900">
-                            Questions for: {exams.find(e => e.id === selectedExamId)?.title}
-                          </h4>
-                          <p className="text-xs text-gray-400">Add, view, and delete questions for the selected exam attempt.</p>
-                        </div>
-                        <button 
-                          onClick={() => setIsQuestionModalOpen(true)}
-                          className="tomato-btn py-1.5 px-3 text-xs flex items-center gap-1"
-                        >
-                          <Plus size={12} />
-                          <span>Add Question</span>
-                        </button>
-                      </div>
-
-                      {questions.length === 0 ? (
-                        <div className="border border-dashed border-gray-200 bg-white py-12 rounded-xl text-center text-xs text-gray-400">
-                          No questions loaded. Click Add Question.
-                        </div>
-                      ) : (
-                        <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-                          {questions.map((q, qidx) => (
-                            <div key={q.id} className="border border-gray-150 bg-white p-4 rounded-xl relative">
-                              <button 
-                                onClick={() => handleDeleteQuestion(q.id)}
-                                className="absolute top-4 right-4 text-gray-300 hover:text-red-500 smooth-transition"
-                                title="Delete Question"
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                              <p className="font-bold text-xs text-dark-900 mb-3 pr-6">
-                                Q{qidx + 1}: {q.question_text}
-                              </p>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-3">
-                                <div className={`p-2 rounded-lg border ${q.correct_option === 'A' ? 'bg-green-50 border-green-200 text-green-700 font-semibold' : 'border-gray-100 text-gray-500'}`}>
-                                  A) {q.option_a}
-                                </div>
-                                <div className={`p-2 rounded-lg border ${q.correct_option === 'B' ? 'bg-green-50 border-green-200 text-green-700 font-semibold' : 'border-gray-100 text-gray-500'}`}>
-                                  B) {q.option_b}
-                                </div>
-                                <div className={`p-2 rounded-lg border ${q.correct_option === 'C' ? 'bg-green-50 border-green-200 text-green-700 font-semibold' : 'border-gray-100 text-gray-500'}`}>
-                                  C) {q.option_c}
-                                </div>
-                                <div className={`p-2 rounded-lg border ${q.correct_option === 'D' ? 'bg-green-50 border-green-200 text-green-700 font-semibold' : 'border-gray-100 text-gray-500'}`}>
-                                  D) {q.option_d}
-                                </div>
-                              </div>
-                              <span className="text-[10px] text-green-600 bg-green-50 border border-green-100 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
-                                Correct: Option {q.correct_option}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="py-24 text-center text-xs text-gray-400">
-                      Select an exam from the left column to configure its question set.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: ENROLLMENTS */}
-          {activeTab === 'enrollments' && (
-            <div className="space-y-8 animate-fade-in">
-              <div className="flex justify-between items-center flex-wrap gap-4">
-                <div>
-                  <h3 className="text-lg font-bold text-dark-900">Manage Course Enrolees</h3>
-                  <p className="text-xs text-gray-400">Directly enroll students or review course entry requests.</p>
-                </div>
-                <button 
-                  onClick={() => setIsEnrollModalOpen(true)}
-                  className="tomato-btn py-2 text-xs flex items-center gap-1"
-                >
-                  <Plus size={14} />
-                  <span>Enroll Student</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Pending requests */}
-                <div>
-                  <h4 className="font-bold text-xs text-gray-400 uppercase tracking-widest mb-3">Pending Student Requests</h4>
-                  {pendingEnrollments.length === 0 ? (
-                    <div className="border border-dashed border-gray-200 bg-gray-50/50 py-8 rounded-xl text-center text-xs text-gray-400">
-                      No pending requests to approve.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {pendingEnrollments.map((req, idx) => (
-                        <div key={idx} className="flex justify-between items-center border border-gray-150 p-4 rounded-xl bg-white text-xs">
-                          <div>
-                            <p className="font-bold text-dark-900">{req.student_name} ({req.student_id})</p>
-                            <span className="text-gray-400">Course Request: <span className="font-semibold text-tomato-500">{req.course_code}</span></span>
-                          </div>
-                          <button 
-                            onClick={() => handleApproveEnrollment(req.course_id, req.student_id)}
-                            className="tomato-btn py-1 px-3 text-[11px] rounded-lg"
-                          >
-                            <Check size={12} />
-                            <span>Accept</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Course listing */}
-                <div>
-                  <h4 className="font-bold text-xs text-gray-400 uppercase tracking-widest mb-3">My Taught Courses</h4>
-                  {courses.length === 0 ? (
-                    <p className="text-xs text-gray-400 py-2">You are not assigned to teach any courses.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {courses.map(course => (
-                        <div key={course.id} className="border border-gray-150 p-4 rounded-xl flex justify-between items-center bg-white text-xs">
-                          <div>
-                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono font-bold text-[10px]">{course.code}</span>
-                            <h5 className="font-bold text-dark-900 mt-1">{course.name}</h5>
-                          </div>
-                          <span className="font-bold text-tomato-500 bg-tomato-50/50 border border-tomato-100/50 py-1 px-3 rounded-lg">
-                            {course.enrolled_students_count} Active Enrolled
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* TAB: PROFILE SETTINGS */}
           {activeTab === 'profile' && (
             <div className="max-w-md animate-fade-in space-y-6">
               <h3 className="text-lg font-bold text-dark-900">Manage Instructor Profile</h3>
               
-              <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-150">
-                {profile.profile_image ? (
-                  <img 
-                    src={`http://localhost:5000${profile.profile_image}`} 
-                    alt="Instructor" 
-                    className="w-16 h-16 rounded-full object-cover border-2 border-tomato-500 shadow-md"
-                    onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&h=120&fit=crop'; }}
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-tomato-100 flex items-center justify-center text-tomato-600 border border-tomato-200 text-2xl font-bold">
-                    {profile.name?.charAt(0)}
-                  </div>
-                )}
-                <div>
-                  <h4 className="font-bold text-dark-900">{profile.name}</h4>
-                  <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                    <Award size={13} />
-                    <span>Joining Date: {new Date(profile.joining_date).toLocaleDateString()}</span>
-                  </p>
-                </div>
-              </div>
-
               <form onSubmit={handleProfileSubmit} className="space-y-4 pt-2">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Display Name</label>
@@ -708,6 +900,20 @@ export default function TeacherDashboard() {
                   />
                 </div>
 
+                <div className="pt-4 border-t border-gray-150">
+                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-1">
+                     <Key size={14} className="text-tomato-500"/> AI API Key (Gemini)
+                   </label>
+                   <p className="text-[10px] text-gray-400 mb-2">Enter your Google Gemini API Key to enable the AI Marking feature for written exams.</p>
+                   <input
+                     type="password"
+                     placeholder="AIzaSy..."
+                     value={profileApiKey}
+                     onChange={(e) => setProfileApiKey(e.target.value)}
+                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition font-mono"
+                   />
+                </div>
+
                 <button type="submit" className="tomato-btn py-3 w-full mt-4">
                   Save Changes
                 </button>
@@ -719,23 +925,9 @@ export default function TeacherDashboard() {
 
       {/* POPUP MODALS */}
 
-      {/* Modal: Schedule Exam */}
-      <Modal isOpen={isExamModalOpen} onClose={() => setIsExamModalOpen(false)} title="Schedule Online Exam">
-        <form onSubmit={handleCreateExam} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Course</label>
-            <select
-              required
-              value={examForm.course_id}
-              onChange={e => setExamForm({ ...examForm, course_id: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            >
-              <option value="">-- Select Course --</option>
-              {courses.map(course => (
-                <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
-              ))}
-            </select>
-          </div>
+      {/* Modal: Schedule / Edit Exam */}
+      <Modal isOpen={isExamModalOpen} onClose={() => setIsExamModalOpen(false)} title={isEditingExam ? "Edit Exam" : "Schedule Exam"}>
+        <form onSubmit={handleSaveExam} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Exam Title</label>
             <input 
@@ -745,31 +937,109 @@ export default function TeacherDashboard() {
               className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
             />
           </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Date & Start Time</label>
-            <input 
-              type="datetime-local" required
-              value={examForm.exam_date} 
-              onChange={e => setExamForm({ ...examForm, exam_date: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Date & Start Time</label>
+              <input 
+                type="datetime-local" required
+                value={examForm.exam_date} 
+                onChange={e => setExamForm({ ...examForm, exam_date: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Duration (Minutes)</label>
+              <input 
+                type="number" required placeholder="e.g. 45" min="1"
+                value={examForm.duration_minutes} 
+                onChange={e => setExamForm({ ...examForm, duration_minutes: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
+              />
+            </div>
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Duration (Minutes)</label>
-            <input 
-              type="number" required placeholder="e.g. 45" min="1"
-              value={examForm.duration_minutes} 
-              onChange={e => setExamForm({ ...examForm, duration_minutes: e.target.value })}
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Exam Type</label>
+            <select 
+              required
+              value={examForm.type} 
+              onChange={e => setExamForm({ ...examForm, type: e.target.value })}
               className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            />
+            >
+              <option value="MCQ">MCQ Only</option>
+              <option value="Written">Written Only</option>
+              <option value="Both">Both (MCQ & Written)</option>
+            </select>
           </div>
-          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Publish Exam</button>
+          
+          <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-200 mt-2">
+             <label className="block text-xs font-bold text-gray-700 uppercase">Proctoring Requirements</label>
+             <label className="flex items-center gap-2 text-sm text-dark-900 font-semibold cursor-pointer">
+               <input 
+                 type="checkbox" 
+                 checked={examForm.must_on_camera} 
+                 onChange={e => setExamForm({ ...examForm, must_on_camera: e.target.checked })}
+                 className="w-4 h-4 text-tomato-500 focus:ring-tomato-500 border-gray-300 rounded"
+               />
+               Must turn on Camera to enter
+             </label>
+             <label className="flex items-center gap-2 text-sm text-dark-900 font-semibold cursor-pointer">
+               <input 
+                 type="checkbox" 
+                 checked={examForm.must_on_microphone} 
+                 onChange={e => setExamForm({ ...examForm, must_on_microphone: e.target.checked })}
+                 className="w-4 h-4 text-tomato-500 focus:ring-tomato-500 border-gray-300 rounded"
+               />
+               Must turn on Microphone to enter
+             </label>
+          </div>
+
+          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Save Exam</button>
         </form>
       </Modal>
 
-      {/* Modal: Add Question */}
-      <Modal isOpen={isQuestionModalOpen} onClose={() => setIsQuestionModalOpen(false)} title="Add Multiple Choice Question">
-        <form onSubmit={handleAddQuestion} className="space-y-4">
+      {/* Modal: Make Live */}
+      <Modal isOpen={isLiveModalOpen} onClose={() => setIsLiveModalOpen(false)} title="Make Exam Live">
+        <form onSubmit={handleMakeLiveSubmit} className="space-y-4">
+          <p className="text-xs text-gray-500">
+            Set a secure password for this exam. Students will need this password to enter the exam room.
+          </p>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Exam Password</label>
+            <input 
+              type="text" required placeholder="e.g. Secret123"
+              value={liveForm.password} 
+              onChange={e => setLiveForm({ password: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition font-mono"
+            />
+          </div>
+          <button type="submit" className="w-full py-2.5 mt-2 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-md transition-colors flex justify-center items-center gap-2">
+            <Play size={16} /> Start Live Exam Now
+          </button>
+        </form>
+      </Modal>
+
+      {/* Modal: Add/Edit Question */}
+      <Modal isOpen={isQuestionModalOpen} onClose={() => setIsQuestionModalOpen(false)} title={isEditingQuestion ? "Edit Question" : "Add Question"}>
+        
+        {/* Tabs for Question Type */}
+        <div className="flex mb-4 bg-gray-100 p-1 rounded-xl">
+          <button 
+            type="button"
+            onClick={() => setQuestionTab('MCQ')}
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${questionTab === 'MCQ' ? 'bg-white text-dark-900 shadow-sm' : 'text-gray-500 hover:text-dark-900'}`}
+          >
+            MCQ
+          </button>
+          <button 
+            type="button"
+            onClick={() => setQuestionTab('Written')}
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${questionTab === 'Written' ? 'bg-white text-dark-900 shadow-sm' : 'text-gray-500 hover:text-dark-900'}`}
+          >
+            Written
+          </button>
+        </div>
+
+        <form onSubmit={handleSaveQuestion} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase font-mono">Question Text</label>
             <textarea 
@@ -779,92 +1049,146 @@ export default function TeacherDashboard() {
               className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 h-20 resize-none smooth-transition"
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase">Option A</label>
-              <input 
-                type="text" required placeholder="First option"
-                value={questionForm.option_a} 
-                onChange={e => setQuestionForm({ ...questionForm, option_a: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-tomato-500 smooth-transition"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase">Option B</label>
-              <input 
-                type="text" required placeholder="Second option"
-                value={questionForm.option_b} 
-                onChange={e => setQuestionForm({ ...questionForm, option_b: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-tomato-500 smooth-transition"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase">Option C</label>
-              <input 
-                type="text" required placeholder="Third option"
-                value={questionForm.option_c} 
-                onChange={e => setQuestionForm({ ...questionForm, option_c: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-tomato-500 smooth-transition"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase">Option D</label>
-              <input 
-                type="text" required placeholder="Fourth option"
-                value={questionForm.option_d} 
-                onChange={e => setQuestionForm({ ...questionForm, option_d: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-tomato-500 smooth-transition"
-              />
-            </div>
-          </div>
-
+          
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Correct Option</label>
-            <select
-              required
-              value={questionForm.correct_option}
-              onChange={e => setQuestionForm({ ...questionForm, correct_option: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            >
-              <option value="A">Option A</option>
-              <option value="B">Option B</option>
-              <option value="C">Option C</option>
-              <option value="D">Option D</option>
-            </select>
-          </div>
-          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Add to Question Pool</button>
-        </form>
-      </Modal>
-
-      {/* Modal: Enroll Student */}
-      <Modal isOpen={isEnrollModalOpen} onClose={() => setIsEnrollModalOpen(false)} title="Enroll Student in Course">
-        <form onSubmit={handleDirectEnroll} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Course</label>
-            <select
-              required
-              value={enrollForm.courseId}
-              onChange={e => setEnrollForm({ ...enrollForm, courseId: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
-            >
-              <option value="">-- Select Course --</option>
-              {courses.map(course => (
-                <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Student ID</label>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase font-mono">Marks for this question</label>
             <input 
-              type="text" required placeholder="e.g. STU1001"
-              value={enrollForm.studentId} 
-              onChange={e => setEnrollForm({ ...enrollForm, studentId: e.target.value })}
+              type="number" required min="1"
+              value={questionForm.marks} 
+              onChange={e => setQuestionForm({ ...questionForm, marks: parseInt(e.target.value) || 0 })}
               className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
             />
           </div>
-          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Enroll Student</button>
+
+          {questionTab === 'MCQ' && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {['a', 'b', 'c', 'd'].map(opt => (
+                  <div key={opt}>
+                    <label className="block text-xs font-bold text-gray-700 mb-1 uppercase">Option {opt}</label>
+                    <input 
+                      type="text" required placeholder={`Option ${opt.toUpperCase()}`}
+                      value={questionForm[`option_${opt}`]} 
+                      onChange={e => setQuestionForm({ ...questionForm, [`option_${opt}`]: e.target.value })}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-tomato-500 smooth-transition"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Correct Option</label>
+                <select 
+                  required
+                  value={questionForm.correct_option} 
+                  onChange={e => setQuestionForm({ ...questionForm, correct_option: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
+                >
+                  <option value="A">Option A</option>
+                  <option value="B">Option B</option>
+                  <option value="C">Option C</option>
+                  <option value="D">Option D</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          <button type="submit" className="tomato-btn w-full py-2.5 mt-2">Save Question</button>
         </form>
       </Modal>
+
+      {/* Modal: View Answersheet */}
+      {isAnswersModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-scale-up">
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+              <div>
+                <h3 className="font-extrabold text-lg text-dark-900">Answersheet: {selectedStudentForAnswers?.name}</h3>
+                <p className="text-xs text-gray-500">Review and grade the student's submission.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={handleAiMarking}
+                  disabled={loading}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md shadow-purple-500/30 transition-colors flex items-center gap-2"
+                >
+                  {loading ? <RefreshCw size={14} className="animate-spin" /> : <Award size={14} />}
+                  AI Marking
+                </button>
+                <button onClick={() => setIsAnswersModalOpen(false)} className="text-gray-400 hover:text-dark-900">
+                  <Menu size={20} />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
+              {studentAnswers.length === 0 ? (
+                <div className="text-center text-gray-400 py-10">No answers recorded.</div>
+              ) : (
+                <div className="space-y-6">
+                  {studentAnswers.map((ans, idx) => (
+                    <div key={ans.answer_id} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                      <div className="flex justify-between items-start gap-4 mb-4">
+                        <div className="flex-1">
+                          <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold shrink-0 mb-2 inline-block">
+                            {ans.type} | Max Marks: {ans.max_marks}
+                          </span>
+                          <p className="font-bold text-sm text-dark-900">Q{idx+1}: {ans.question_text}</p>
+                        </div>
+                        <div className="shrink-0 w-24">
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 text-right">Awarded Marks</label>
+                          <input 
+                            type="number"
+                            min="0"
+                            max={ans.max_marks}
+                            value={manualGrades[ans.answer_id] !== undefined ? manualGrades[ans.answer_id] : (ans.marks_awarded !== null ? ans.marks_awarded : '')}
+                            onChange={(e) => setManualGrades({...manualGrades, [ans.answer_id]: parseInt(e.target.value) || 0})}
+                            className="w-full text-right px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-bold focus:outline-none focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500"
+                            placeholder="-"
+                          />
+                        </div>
+                      </div>
+
+                      {ans.type === 'MCQ' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-3">
+                          {['A', 'B', 'C', 'D'].map(opt => (
+                            <div key={opt} className={`p-2 rounded-lg border ${
+                              ans.correct_option === opt 
+                                ? 'bg-green-50 border-green-200 text-green-700 font-semibold' 
+                                : (ans.student_answer === opt ? 'bg-red-50 border-red-200 text-red-700 line-through' : 'border-gray-100 text-gray-500')
+                            }`}>
+                              {opt}) {ans[`option_${opt.toLowerCase()}`]}
+                              {ans.student_answer === opt && <span className="ml-2 font-bold">(Student's Answer)</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {ans.type === 'Written' && (
+                        <div>
+                          <p className="text-xs font-bold text-gray-500 mb-1">Student's Answer:</p>
+                          <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg text-sm text-dark-900 whitespace-pre-wrap min-h-[60px]">
+                            {ans.student_answer || <span className="text-gray-400 italic">No answer provided.</span>}
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-100 bg-white rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setIsAnswersModalOpen(false)} className="px-5 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-100">
+                Cancel
+              </button>
+              <button onClick={handleManualGradeSubmit} className="tomato-btn px-6 py-2">
+                Save Grades
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

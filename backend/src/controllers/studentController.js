@@ -120,20 +120,17 @@ exports.requestEnrollment = async (req, res) => {
 
 // --- EXAM ATTENDANCE ---
 
-// Get list of exams available for enrolled courses
+// Get list of exams available
 exports.getExams = async (req, res) => {
   try {
     const query = `
-      SELECT e.*, c.name AS course_name, c.code AS course_code,
+      SELECT e.*,
              se.score, se.started_at, se.finished_at, se.status AS exam_status,
              se.demerit_points, se.block_until
       FROM exams e
-      JOIN courses c ON e.course_id = c.id
-      JOIN course_enrollments ce ON c.id = ce.course_id
       LEFT JOIN student_exams se ON e.id = se.exam_id AND se.student_id = ?
-      WHERE ce.student_id = ? AND ce.status = 'approved'
     `;
-    const [rows] = await db.query(query, [req.user.id, req.user.id]);
+    const [rows] = await db.query(query, [req.user.id]);
     return res.json(rows);
   } catch (error) {
     console.error(error);
@@ -141,19 +138,23 @@ exports.getExams = async (req, res) => {
   }
 };
 
-// Start an exam (Creates entry in student_exams or returns existing)
 exports.startExam = async (req, res) => {
   const { examId } = req.params;
+  const { exam_password } = req.body;
   try {
-    // Verify student is enrolled in the course for this exam
-    const queryCheck = `
-      SELECT e.id FROM exams e
-      JOIN course_enrollments ce ON e.course_id = ce.course_id
-      WHERE e.id = ? AND ce.student_id = ? AND ce.status = 'approved'
-    `;
-    const [enrollCheck] = await db.query(queryCheck, [examId, req.user.id]);
-    if (enrollCheck.length === 0) {
-      return res.status(403).json({ message: 'You are not enrolled in this course to take this exam' });
+    // Verify exam exists and check password
+    const [examDetails] = await db.query('SELECT is_live, exam_password FROM exams WHERE id = ?', [examId]);
+    
+    if (examDetails.length === 0) {
+      return res.status(404).json({ message: 'Exam not found' });
+    }
+
+    if (examDetails[0].is_live) {
+      if (!exam_password || exam_password !== examDetails[0].exam_password) {
+        return res.status(403).json({ message: 'Invalid or missing exam password.' });
+      }
+    } else {
+       return res.status(403).json({ message: 'This exam is not currently live.' });
     }
 
     // Check if exam is already started/completed
@@ -217,7 +218,7 @@ exports.getExamQuestions = async (req, res) => {
 
     // Return questions (without correct option for security!)
     const [questions] = await db.query(
-      'SELECT id, question_text, option_a, option_b, option_c, option_d FROM exam_questions WHERE exam_id = ?',
+      'SELECT id, type, marks, question_text, option_a, option_b, option_c, option_d FROM exam_questions WHERE exam_id = ?',
       [examId]
     );
 
@@ -231,7 +232,7 @@ exports.getExamQuestions = async (req, res) => {
 // Submit exam answers and calculate score
 exports.submitExam = async (req, res) => {
   const { examId } = req.params;
-  const { answers } = req.body; // Map: { questionId: chosenOption } e.g. { 1: 'B', 2: 'C' }
+  const { answers } = req.body; // Map: { questionId: student_answer }
 
   try {
     const [attempt] = await db.query(
@@ -247,27 +248,54 @@ exports.submitExam = async (req, res) => {
       return res.status(400).json({ message: 'Exam already submitted' });
     }
 
-    // Get correct answers
+    // Get questions with correct answers
     const [questions] = await db.query(
-      'SELECT id, correct_option FROM exam_questions WHERE exam_id = ?',
+      'SELECT id, type, correct_option, marks FROM exam_questions WHERE exam_id = ?',
       [examId]
     );
 
-    let score = 0;
-    questions.forEach(q => {
+    let totalScore = 0;
+    let pendingManualReview = false;
+
+    for (let q of questions) {
       const studentAnswer = answers[q.id];
-      if (studentAnswer && studentAnswer.toUpperCase() === q.correct_option.toUpperCase()) {
-        score++;
+      let marksAwarded = null; // NULL means pending grading
+
+      if (studentAnswer) {
+        if (q.type === 'MCQ') {
+          if (studentAnswer.toUpperCase() === q.correct_option.toUpperCase()) {
+            marksAwarded = q.marks;
+            totalScore += q.marks;
+          } else {
+            marksAwarded = 0;
+          }
+        } else {
+          // Written question, needs manual review
+          pendingManualReview = true;
+          marksAwarded = null; 
+        }
+      } else {
+        marksAwarded = 0; // Did not answer
       }
-    });
+
+      // Save student answer
+      await db.query(
+        'INSERT INTO student_answers (student_id, exam_id, question_id, student_answer, marks_awarded) VALUES (?, ?, ?, ?, ?)',
+        [req.user.id, examId, q.id, studentAnswer || '', marksAwarded]
+      );
+    }
 
     // Update status to completed
     await db.query(
       "UPDATE student_exams SET score = ?, finished_at = NOW(), status = 'completed' WHERE student_id = ? AND exam_id = ?",
-      [score, req.user.id, examId]
+      [pendingManualReview ? null : totalScore, req.user.id, examId]
     );
 
-    return res.json({ message: 'Exam submitted successfully', score, total: questions.length });
+    return res.json({ 
+      message: 'Exam submitted successfully', 
+      score: pendingManualReview ? 'Pending Review' : totalScore,
+      pendingManualReview 
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Server error submitting exam' });

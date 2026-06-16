@@ -43,20 +43,23 @@ router.use(verifyToken, authorizeRoles('teacher'));
 router.get('/profile', teacherController.getProfile);
 router.put('/profile', upload.single('profile_image'), teacherController.updateProfile);
 
-// Courses & Enrollment
-router.get('/courses', teacherController.getCourses);
-router.post('/courses/enroll-student', teacherController.enrollStudent);
-router.get('/enrollments/pending', teacherController.getPendingEnrollments);
-router.post('/enrollments/approve', teacherController.approveEnrollment);
-
 // Exams
 router.get('/exams', teacherController.getExams);
 router.post('/exams', teacherController.createExam);
+router.put('/exams/:id', teacherController.updateExam);
 router.delete('/exams/:id', teacherController.deleteExam);
+router.post('/exams/:id/live', teacherController.toggleExamLive);
+
+// Exam Results & Grading
+router.get('/exams/:id/results', teacherController.getExamResults);
+router.get('/exams/:examId/students/:studentId/answers', teacherController.getStudentAnswersheet);
+router.post('/exams/:examId/students/:studentId/grade/manual', teacherController.manualGradeAnswersheet);
+router.post('/exams/:examId/students/:studentId/grade/ai', teacherController.aiGradeAnswersheet);
 
 // Exam Questions
 router.get('/exams/:examId/questions', teacherController.getQuestions);
 router.post('/questions', teacherController.createQuestion);
+router.put('/questions/:id', teacherController.updateQuestion);
 router.delete('/questions/:id', teacherController.deleteQuestion);
 
 // Proctoring Alerts
