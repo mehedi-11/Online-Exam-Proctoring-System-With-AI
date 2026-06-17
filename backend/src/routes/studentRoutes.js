@@ -14,6 +14,8 @@ router.put('/change-password', studentController.changePassword);
 router.get('/exams', studentController.getExams);
 router.post('/exams/:examId/start', studentController.startExam);
 router.get('/exams/:examId/questions', studentController.getExamQuestions);
+router.get('/exams/:examId/answers', studentController.getSavedAnswers);
+router.post('/exams/:examId/auto-save', studentController.autoSaveExam);
 router.post('/exams/:examId/submit', studentController.submitExam);
 
 module.exports = router;

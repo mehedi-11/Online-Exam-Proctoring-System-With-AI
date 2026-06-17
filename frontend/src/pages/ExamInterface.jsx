@@ -103,8 +103,33 @@ export default function ExamInterface() {
       });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [examStarted, isBlocked, timeLeft]);
+    // 5. Auto-Save Interval (Every 30 seconds)
+    const autoSaveTimer = setInterval(async () => {
+      if (Object.keys(answers).length > 0) {
+        try {
+          await api.post(`http://localhost:5000/api/student/exams/${examId}/auto-save`, { answers });
+        } catch (err) {
+          console.warn('Auto-save failed', err);
+        }
+      }
+    }, 30000);
+
+    // 6. Detect page close/refresh
+    const handleBeforeUnload = (e) => {
+      logCheating('Exit Attempt', 'Student tried to close or refresh the exam page early.');
+      // Auto-save before unload if possible (browsers often block async inside beforeunload, but we try)
+      if (Object.keys(answers).length > 0) {
+        navigator.sendBeacon(`http://localhost:5000/api/student/exams/${examId}/auto-save`, JSON.stringify({ answers }));
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(timer);
+      clearInterval(autoSaveTimer);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [examStarted, isBlocked, timeLeft, answers, examId]);
 
   // 4. Block countdown Timer (Ticks every second if blocked)
   useEffect(() => {
@@ -176,8 +201,14 @@ export default function ExamInterface() {
 
   const loadQuestions = async () => {
     try {
-      const qRes = await api.get(`http://localhost:5000/api/student/exams/${examId}/questions`);
+      const [qRes, aRes] = await Promise.all([
+        api.get(`http://localhost:5000/api/student/exams/${examId}/questions`),
+        api.get(`http://localhost:5000/api/student/exams/${examId}/answers`)
+      ]);
       setQuestions(qRes.data);
+      if (aRes.data) {
+        setAnswers(aRes.data);
+      }
     } catch (err) {
       setError('Could not load questions: ' + (err.response?.data?.message || 'Blocked'));
     }

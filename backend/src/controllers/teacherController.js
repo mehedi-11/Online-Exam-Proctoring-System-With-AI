@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const bcrypt = require('bcryptjs');
 
 // --- PROFILE MANAGEMENT ---
 
@@ -50,6 +51,33 @@ exports.updateProfile = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Server error updating profile' });
+  }
+};
+
+exports.changePassword = async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  if (!oldPassword || !newPassword) {
+    return res.status(400).json({ message: 'Old and new passwords are required' });
+  }
+  try {
+    const [rows] = await db.query('SELECT password FROM teachers WHERE id = ?', [req.user.id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Teacher not found' });
+    }
+
+    const teacher = rows[0];
+    const isMatch = await bcrypt.compare(oldPassword, teacher.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Incorrect old password' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE teachers SET password = ? WHERE id = ?', [hashedPassword, req.user.id]);
+
+    return res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error updating password' });
   }
 };
 
@@ -418,5 +446,55 @@ exports.getProctoringLogs = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Server error fetching proctoring logs' });
+  }
+};
+
+// Get students for a specific exam
+exports.getExamStudents = async (req, res) => {
+  const { examId } = req.params;
+  try {
+    const [rows] = await db.query(`
+      SELECT s.id, s.name, se.status, se.demerit_points, se.score
+      FROM student_exams se
+      JOIN students s ON se.student_id = s.id
+      WHERE se.exam_id = ?
+    `, [examId]);
+    return res.json(rows);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error retrieving exam students' });
+  }
+};
+
+// Download logs for a specific exam as CSV (Excel compatible)
+exports.downloadExamLogs = async (req, res) => {
+  const { examId } = req.params;
+  try {
+    const [logs] = await db.query(`
+      SELECT pl.student_id, s.name, pl.incident_type, pl.description, pl.timestamp
+      FROM proctor_logs pl
+      JOIN students s ON pl.student_id = s.id
+      WHERE pl.exam_id = ?
+      ORDER BY pl.timestamp DESC
+    `, [examId]);
+
+    let csvContent = 'Student ID,Student Name,Incident Type,Description,Timestamp\n';
+    logs.forEach(log => {
+      const row = [
+        `"${log.student_id}"`,
+        `"${log.name}"`,
+        `"${log.incident_type}"`,
+        `"${log.description}"`,
+        `"${new Date(log.timestamp).toISOString()}"`
+      ].join(',');
+      csvContent += row + '\n';
+    });
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="exam_${examId}_proctor_logs.csv"`);
+    return res.send(csvContent);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error downloading logs' });
   }
 };

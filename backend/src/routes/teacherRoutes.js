@@ -42,6 +42,7 @@ router.use(verifyToken, authorizeRoles('teacher'));
 // Profile management
 router.get('/profile', teacherController.getProfile);
 router.put('/profile', upload.single('profile_image'), teacherController.updateProfile);
+router.put('/change-password', teacherController.changePassword);
 
 // Exams
 router.get('/exams', teacherController.getExams);
@@ -62,7 +63,11 @@ router.post('/questions', teacherController.createQuestion);
 router.put('/questions/:id', teacherController.updateQuestion);
 router.delete('/questions/:id', teacherController.deleteQuestion);
 
-// Proctoring Alerts
+// Exam Students & Logs
+router.get('/exams/:examId/students', teacherController.getExamStudents);
+router.get('/exams/:examId/logs/download', teacherController.downloadExamLogs);
+
+// Proctoring
 router.get('/proctoring-logs', teacherController.getProctoringLogs);
 
 module.exports = router;

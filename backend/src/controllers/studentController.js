@@ -229,6 +229,77 @@ exports.getExamQuestions = async (req, res) => {
   }
 };
 
+// Fetch saved answers for an ongoing exam
+exports.getSavedAnswers = async (req, res) => {
+  const { examId } = req.params;
+  try {
+    const [rows] = await db.query(
+      'SELECT question_id, student_answer FROM student_answers WHERE student_id = ? AND exam_id = ?',
+      [req.user.id, examId]
+    );
+    const answersMap = {};
+    rows.forEach(r => answersMap[r.question_id] = r.student_answer);
+    return res.json(answersMap);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error retrieving saved answers' });
+  }
+};
+
+// Auto Save Exam Answers
+exports.autoSaveExam = async (req, res) => {
+  const { examId } = req.params;
+  const { answers } = req.body; // Map: { questionId: student_answer }
+
+  try {
+    const [attempt] = await db.query(
+      'SELECT status, started_at FROM student_exams WHERE student_id = ? AND exam_id = ?',
+      [req.user.id, examId]
+    );
+
+    if (attempt.length === 0) return res.status(400).json({ message: 'No active exam session' });
+    if (attempt[0].status === 'completed') return res.status(400).json({ message: 'Exam already submitted' });
+
+    // Enforce time limit if strict
+    const [examDetails] = await db.query('SELECT duration_minutes FROM exams WHERE id = ?', [examId]);
+    if (examDetails.length > 0) {
+      const durationSec = examDetails[0].duration_minutes * 60;
+      const elapsedSec = Math.floor((new Date() - new Date(attempt[0].started_at)) / 1000);
+      if (elapsedSec > durationSec + 120) {
+        // 120 seconds grace period
+        return res.status(400).json({ message: 'Exam time has expired' });
+      }
+    }
+
+    // Save answers
+    for (const [qId, ans] of Object.entries(answers)) {
+      if (!ans) continue;
+      
+      const [existing] = await db.query(
+        'SELECT id FROM student_answers WHERE student_id = ? AND exam_id = ? AND question_id = ?',
+        [req.user.id, examId, qId]
+      );
+
+      if (existing.length > 0) {
+        await db.query(
+          'UPDATE student_answers SET student_answer = ? WHERE id = ?',
+          [ans, existing[0].id]
+        );
+      } else {
+        await db.query(
+          'INSERT INTO student_answers (student_id, exam_id, question_id, student_answer) VALUES (?, ?, ?, ?)',
+          [req.user.id, examId, qId, ans]
+        );
+      }
+    }
+
+    return res.json({ message: 'Auto-saved successfully' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error during auto-save' });
+  }
+};
+
 // Submit exam answers and calculate score
 exports.submitExam = async (req, res) => {
   const { examId } = req.params;
@@ -246,6 +317,17 @@ exports.submitExam = async (req, res) => {
 
     if (attempt[0].status === 'completed') {
       return res.status(400).json({ message: 'Exam already submitted' });
+    }
+
+    // Enforce strict time limit
+    const [examDetails] = await db.query('SELECT duration_minutes FROM exams WHERE id = ?', [examId]);
+    if (examDetails.length > 0) {
+      const durationSec = examDetails[0].duration_minutes * 60;
+      const elapsedSec = Math.floor((new Date() - new Date(attempt[0].started_at)) / 1000);
+      if (elapsedSec > durationSec + 120) {
+        // Just log or block depending on policy
+        console.log(`Student ${req.user.id} submitted exam ${examId} late by ${elapsedSec - durationSec} seconds.`);
+      }
     }
 
     // Get questions with correct answers
@@ -278,11 +360,25 @@ exports.submitExam = async (req, res) => {
         marksAwarded = 0; // Did not answer
       }
 
-      // Save student answer
-      await db.query(
-        'INSERT INTO student_answers (student_id, exam_id, question_id, student_answer, marks_awarded) VALUES (?, ?, ?, ?, ?)',
-        [req.user.id, examId, q.id, studentAnswer || '', marksAwarded]
+      // Check if answer already exists (from auto-save)
+      const [existingAns] = await db.query(
+        'SELECT id FROM student_answers WHERE student_id = ? AND exam_id = ? AND question_id = ?',
+        [req.user.id, examId, q.id]
       );
+
+      if (existingAns.length > 0) {
+        // Update
+        await db.query(
+          'UPDATE student_answers SET student_answer = ?, marks_awarded = ? WHERE id = ?',
+          [studentAnswer || '', marksAwarded, existingAns[0].id]
+        );
+      } else {
+        // Insert
+        await db.query(
+          'INSERT INTO student_answers (student_id, exam_id, question_id, student_answer, marks_awarded) VALUES (?, ?, ?, ?, ?)',
+          [req.user.id, examId, q.id, studentAnswer || '', marksAwarded]
+        );
+      }
     }
 
     // Update status to completed

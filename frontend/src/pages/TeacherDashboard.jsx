@@ -4,7 +4,7 @@ import axios from 'axios';
 import { 
   BookOpen, Plus, Calendar, Clock, FileQuestion, Trash2, Check,
   Camera, AlertCircle, RefreshCw, Download, Trash, Award,
-  Menu, LogOut, Edit, Play, ShieldAlert, FileText, Activity, Users, Settings, Key
+  Menu, LogOut, Edit, Play, ShieldAlert, FileText, Activity, Users, Settings, Key, Eye, EyeOff, KeyRound
 } from 'lucide-react';
 import Modal from '../components/Modal';
 
@@ -31,6 +31,10 @@ export default function TeacherDashboard() {
   const [studentAnswers, setStudentAnswers] = useState([]);
   const [manualGrades, setManualGrades] = useState({});
 
+  // Proctor Logs State
+  const [selectedLogExamId, setSelectedLogExamId] = useState('');
+  const [examStudents, setExamStudents] = useState([]);
+
   // UI State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -55,6 +59,11 @@ export default function TeacherDashboard() {
   const [profileImageFile, setProfileImageFile] = useState(null);
   const [profileName, setProfileName] = useState('');
   const [profileApiKey, setProfileApiKey] = useState('');
+
+  // Password Change State
+  const [pwData, setPwData] = useState({ oldPassword: '', newPassword: '' });
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   const api = axios.create({
     headers: { Authorization: `Bearer ${token}` }
@@ -113,6 +122,18 @@ export default function TeacherDashboard() {
     }
   };
 
+  const fetchExamStudents = async (examId) => {
+    setLoading(true);
+    try {
+      const res = await api.get(`http://localhost:5000/api/teacher/exams/${examId}/students`);
+      setExamStudents(res.data);
+    } catch (err) {
+      setError('Error fetching exam students');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const triggerSuccess = (msg) => {
     setSuccess(msg);
     setTimeout(() => setSuccess(''), 4000);
@@ -138,6 +159,18 @@ export default function TeacherDashboard() {
       localStorage.setItem('user', JSON.stringify(res.data.user));
     } catch (err) {
       setError('Error updating profile details.');
+    }
+  };
+
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await api.put('http://localhost:5000/api/teacher/change-password', pwData);
+      triggerSuccess('Password changed successfully');
+      setPwData({ oldPassword: '', newPassword: '' });
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error changing password.');
     }
   };
 
@@ -801,75 +834,95 @@ export default function TeacherDashboard() {
 
           {/* TAB: PROCTOR LOGS */}
           {activeTab === 'logs' && (
-            <div className="space-y-8 animate-fade-in">
-              <div className="flex justify-between items-center flex-wrap gap-4">
-                <div>
-                  <h3 className="text-lg font-bold text-dark-900 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-tomato-500 animate-pulse"></span>
-                    <span>Live Proctoring Activity Stream</span>
-                  </h3>
-                  <p className="text-xs text-gray-400">Updates automatically in real time.</p>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={downloadLogs} className="tomato-btn py-1.5 px-3 text-xs flex items-center gap-1.5">
-                    <Download size={14} />
-                    <span>Download log file</span>
-                  </button>
-                  <button onClick={handleClearLogs} className="tomato-btn-outline border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-dark-900 py-1.5 px-3 text-xs flex items-center gap-1.5">
-                    <Trash size={14} />
-                    <span>Clear log file</span>
-                  </button>
+            <div className="space-y-6 animate-fade-in">
+              <div>
+                <h3 className="text-lg font-bold text-dark-900 mb-4">Exam Submissions & Logs</h3>
+                <div className="max-w-md">
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Select Exam</label>
+                  <select 
+                    value={selectedLogExamId} 
+                    onChange={e => {
+                      setSelectedLogExamId(e.target.value);
+                      if(e.target.value) fetchExamStudents(e.target.value);
+                      else setExamStudents([]);
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition shadow-sm"
+                  >
+                    <option value="">-- Choose an Exam --</option>
+                    {exams.map(ex => (
+                      <option key={ex.id} value={ex.id}>{ex.title}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Live alerts feed */}
-                <div className="lg:col-span-2 space-y-4">
-                  <h4 className="font-bold text-xs text-gray-400 uppercase tracking-widest">Active Incident Alerts</h4>
-                  {proctoringLogs.length === 0 ? (
-                    <div className="border border-dashed border-gray-200 rounded-xl p-8 text-center text-xs text-gray-400 bg-gray-50/20">
-                      No cheating activities recorded yet. Safe testing environment.
-                    </div>
-                  ) : (
-                    <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-                      {proctoringLogs.map(log => (
-                        <div key={log.id} className="border border-red-100 bg-red-50/20 p-4 rounded-xl flex items-start gap-3 smooth-transition hover:border-red-300">
-                          <div className="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center shrink-0">
-                            <AlertCircle size={18} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-start flex-wrap gap-1 mb-1">
-                              <p className="font-bold text-xs text-dark-900">
-                                {log.student_name} <span className="font-mono text-gray-400">({log.student_id})</span>
-                              </p>
-                              <span className="text-[10px] text-gray-400 font-semibold">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                            </div>
-                            <p className="text-[11px] text-gray-500 mb-1">
-                              Exam: <span className="font-semibold text-dark-900">{log.exam_title}</span>
-                            </p>
-                            <p className="text-xs font-semibold text-red-700 capitalize">
-                              Cheating flagged: {log.activity_type}
-                            </p>
-                            {log.details && (
-                              <p className="text-xs text-gray-600 mt-1 bg-white border border-red-50 p-2 rounded-lg italic">
-                                "{log.details}"
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Raw log file previewer */}
-                <div className="space-y-4">
-                  <h4 className="font-bold text-xs text-gray-400 uppercase tracking-widest">`cheating_activity.log` Preview</h4>
-                  <div className="bg-dark-900 text-gray-300 font-mono text-[10px] p-4 rounded-2xl h-[400px] overflow-auto leading-relaxed border border-dark-850 shadow-inner">
-                    <pre className="whitespace-pre-wrap">{rawLogs || 'Logs are empty.'}</pre>
+              {selectedLogExamId ? (
+                examStudents.length === 0 ? (
+                  <div className="border border-dashed border-gray-200 rounded-xl p-8 text-center text-xs text-gray-400 bg-gray-50/20">
+                    No students have attempted this exam yet.
                   </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-gray-150 overflow-hidden shadow-sm">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-gray-50 border-b border-gray-150 text-xs text-gray-500 uppercase">
+                        <tr>
+                          <th className="px-6 py-4 font-bold">Student Name</th>
+                          <th className="px-6 py-4 font-bold">Student ID</th>
+                          <th className="px-6 py-4 font-bold">Status</th>
+                          <th className="px-6 py-4 font-bold">Demerit Points</th>
+                          <th className="px-6 py-4 font-bold text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-150 text-dark-900">
+                        {examStudents.map(student => (
+                          <tr key={student.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 font-semibold">{student.name}</td>
+                            <td className="px-6 py-4 font-mono text-xs text-gray-500">{student.id}</td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                student.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                student.status === 'blocked' ? 'bg-red-100 text-red-700' :
+                                'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {student.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              {student.demerit_points > 0 ? (
+                                <span className="text-red-500 font-bold">{student.demerit_points} pts</span>
+                              ) : (
+                                <span className="text-gray-400">0</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
+                              <button 
+                                onClick={() => window.open(`http://localhost:5000/api/teacher/exams/${selectedLogExamId}/logs/download`, '_blank')}
+                                className="px-3 py-1.5 bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 transition-colors text-xs flex items-center gap-1"
+                              >
+                                <Download size={14} /> Log File
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setSelectedResultExamId(selectedLogExamId);
+                                  setSelectedStudentForAnswers(student);
+                                  fetchStudentAnswersheet(selectedLogExamId, student.id);
+                                }}
+                                className="px-3 py-1.5 bg-gray-100 text-dark-900 font-bold rounded-lg hover:bg-gray-200 transition-colors text-xs flex items-center gap-1"
+                              >
+                                <Eye size={14} /> Answers
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              ) : (
+                <div className="py-24 text-center text-xs text-gray-400">
+                  Please select an exam to view students and proctor logs.
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -918,6 +971,55 @@ export default function TeacherDashboard() {
                   Save Changes
                 </button>
               </form>
+
+              <div className="border-t border-gray-150 pt-6">
+                <h4 className="font-bold text-sm text-dark-900 mb-4 flex items-center gap-1.5">
+                  <KeyRound size={16} className="text-tomato-500" />
+                  <span>Update Password</span>
+                </h4>
+                
+                <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">Current Password</label>
+                    <div className="relative">
+                      <input 
+                        type={showOldPassword ? "text" : "password"} required placeholder="••••••••"
+                        value={pwData.oldPassword}
+                        onChange={e => setPwData({ ...pwData, oldPassword: e.target.value })}
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOldPassword(!showOldPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-tomato-500 smooth-transition"
+                      >
+                        {showOldPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase">New Password</label>
+                    <div className="relative">
+                      <input 
+                        type={showNewPassword ? "text" : "password"} required placeholder="••••••••"
+                        value={pwData.newPassword}
+                        onChange={e => setPwData({ ...pwData, newPassword: e.target.value })}
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-tomato-500 smooth-transition"
+                      >
+                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                  <button type="submit" className="tomato-btn w-full py-2.5 mt-2">
+                    Submit Password Change
+                  </button>
+                </form>
+              </div>
             </div>
           )}
         </div>
