@@ -2,6 +2,42 @@ const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+// --- RATE LIMITING HELPERS ---
+const checkRateLimit = async (identifier) => {
+  const [rows] = await db.query('SELECT * FROM login_attempts WHERE identifier = ?', [identifier]);
+  if (rows.length > 0) {
+    const attempt = rows[0];
+    if (attempt.blocked_until && new Date(attempt.blocked_until) > new Date()) {
+      return { blocked: true, blocked_until: attempt.blocked_until };
+    }
+  }
+  return { blocked: false };
+};
+
+const handleFailedLogin = async (identifier) => {
+  const [rows] = await db.query('SELECT * FROM login_attempts WHERE identifier = ?', [identifier]);
+  if (rows.length === 0) {
+    await db.query('INSERT INTO login_attempts (identifier, failed_count) VALUES (?, 1)', [identifier]);
+  } else {
+    let count = rows[0].failed_count + 1;
+    let blockUntil = null;
+    if (count === 3) {
+      blockUntil = new Date();
+      blockUntil.setMinutes(blockUntil.getMinutes() + 5);
+    } else if (count > 3) {
+      blockUntil = new Date();
+      blockUntil.setMinutes(blockUntil.getMinutes() + (5 * (count - 2)));
+    }
+    await db.query('UPDATE login_attempts SET failed_count = ?, blocked_until = ? WHERE identifier = ?', [count, blockUntil, identifier]);
+    return blockUntil;
+  }
+  return null;
+};
+
+const handleSuccessfulLogin = async (identifier) => {
+  await db.query('DELETE FROM login_attempts WHERE identifier = ?', [identifier]);
+};
+
 // Register Teacher
 exports.registerTeacher = async (req, res) => {
   const { name, email, password } = req.body;
@@ -69,16 +105,28 @@ exports.adminLogin = async (req, res) => {
   }
 
   try {
+    const rateLimit = await checkRateLimit(email);
+    if (rateLimit.blocked) {
+      return res.status(403).json({ message: 'Account blocked due to too many failed attempts.', blocked_until: rateLimit.blocked_until });
+    }
+
     const [rows] = await db.query('SELECT * FROM admins WHERE email = ?', [email]);
     if (rows.length === 0) {
+      await handleFailedLogin(email);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const admin = rows[0];
     const isMatch = await bcrypt.compare(password, admin.password);
     if (!isMatch) {
+      const blockUntil = await handleFailedLogin(email);
+      if (blockUntil) {
+        return res.status(403).json({ message: 'Too many failed attempts. Account blocked.', blocked_until: blockUntil });
+      }
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    await handleSuccessfulLogin(email);
 
     const token = jwt.sign(
       { id: admin.id, email: admin.email, name: admin.name, role: 'admin' },
@@ -104,8 +152,14 @@ exports.teacherLogin = async (req, res) => {
   }
 
   try {
+    const rateLimit = await checkRateLimit(email);
+    if (rateLimit.blocked) {
+      return res.status(403).json({ message: 'Account blocked due to too many failed attempts.', blocked_until: rateLimit.blocked_until });
+    }
+
     const [rows] = await db.query('SELECT * FROM teachers WHERE email = ?', [email]);
     if (rows.length === 0) {
+      await handleFailedLogin(email);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -121,8 +175,14 @@ exports.teacherLogin = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, teacher.password);
     if (!isMatch) {
+      const blockUntil = await handleFailedLogin(email);
+      if (blockUntil) {
+        return res.status(403).json({ message: 'Too many failed attempts. Account blocked.', blocked_until: blockUntil });
+      }
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    await handleSuccessfulLogin(email);
 
     const token = jwt.sign(
       { id: teacher.id, email: teacher.email, name: teacher.name, role: 'teacher' },
@@ -155,8 +215,14 @@ exports.studentLogin = async (req, res) => {
   }
 
   try {
+    const rateLimit = await checkRateLimit(studentId);
+    if (rateLimit.blocked) {
+      return res.status(403).json({ message: 'Account blocked due to too many failed attempts.', blocked_until: rateLimit.blocked_until });
+    }
+
     const [rows] = await db.query('SELECT * FROM students WHERE id = ?', [studentId]);
     if (rows.length === 0) {
+      await handleFailedLogin(studentId);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -172,8 +238,14 @@ exports.studentLogin = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, student.password);
     if (!isMatch) {
+      const blockUntil = await handleFailedLogin(studentId);
+      if (blockUntil) {
+        return res.status(403).json({ message: 'Too many failed attempts. Account blocked.', blocked_until: blockUntil });
+      }
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    await handleSuccessfulLogin(studentId);
 
     const token = jwt.sign(
       { id: student.id, email: student.email, name: student.name, role: 'student' },
@@ -194,5 +266,58 @@ exports.studentLogin = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Server error during student login' });
+  }
+};
+
+// --- RESET PASSWORD FLOW ---
+
+exports.verifyIdentifier = async (req, res) => {
+  const { role, identifier } = req.body;
+  try {
+    let emailToReturn = identifier;
+    if (role === 'student') {
+      const [rows] = await db.query('SELECT email, name FROM students WHERE id = ?', [identifier]);
+      if (rows.length === 0) return res.status(404).json({ message: 'Student ID not found' });
+      return res.json({ email: rows[0].email, name: rows[0].name });
+    } else if (role === 'teacher') {
+      const [rows] = await db.query('SELECT email, name FROM teachers WHERE email = ?', [identifier]);
+      if (rows.length === 0) return res.status(404).json({ message: 'Teacher email not found' });
+      return res.json({ email: rows[0].email, name: rows[0].name });
+    } else if (role === 'admin') {
+      const [rows] = await db.query('SELECT email, name FROM admins WHERE email = ?', [identifier]);
+      if (rows.length === 0) return res.status(404).json({ message: 'Admin email not found' });
+      return res.json({ email: rows[0].email, name: rows[0].name });
+    }
+    return res.status(400).json({ message: 'Invalid role' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Server error verifying identifier' });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  const { role, identifier, newPassword } = req.body;
+  if (!role || !identifier || !newPassword) {
+    return res.status(400).json({ message: 'All fields are required' });
+  }
+
+  try {
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    if (role === 'student') {
+      await db.query('UPDATE students SET password = ? WHERE id = ?', [hashedPassword, identifier]);
+    } else if (role === 'teacher') {
+      await db.query('UPDATE teachers SET password = ? WHERE email = ?', [hashedPassword, identifier]);
+    } else if (role === 'admin') {
+      await db.query('UPDATE admins SET password = ? WHERE email = ?', [hashedPassword, identifier]);
+    }
+
+    // Unblock the user on successful reset
+    await handleSuccessfulLogin(identifier);
+
+    return res.json({ message: 'Password reset successfully. You can now login.' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Server error resetting password' });
   }
 };

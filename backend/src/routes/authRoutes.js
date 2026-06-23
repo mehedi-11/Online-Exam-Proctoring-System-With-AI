@@ -11,4 +11,8 @@ router.post('/login/admin', authController.adminLogin);
 router.post('/login/teacher', authController.teacherLogin);
 router.post('/login/student', authController.studentLogin);
 
+// Reset Password routes
+router.post('/verify-identifier', authController.verifyIdentifier);
+router.post('/reset-password', authController.resetPassword);
+
 module.exports = router;

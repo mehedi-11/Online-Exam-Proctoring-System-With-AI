@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api/axiosConfig';
 import { 
   Users, UserCheck, UserCog, ShieldAlert, Check, X, 
   Trash2, ShieldCheck, Plus, RefreshCw, UserMinus,
@@ -42,11 +42,8 @@ export default function AdminDashboard() {
   const [showStudentPassword, setShowStudentPassword] = useState(false);
   const [showAdminPassword, setShowAdminPassword] = useState(false);
 
-  // Axios Instance with JWT auth
-  const api = axios.create({
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
+  // Axios Instance with JWT auth is now centralized in api
+  
   useEffect(() => {
     if (!token) {
       navigate('/login/admin');
@@ -60,11 +57,11 @@ export default function AdminDashboard() {
     setError('');
     try {
       const [tRes, sRes, aRes, stRes, pRes] = await Promise.all([
-        api.get('http://localhost:5000/api/admin/teachers'),
-        api.get('http://localhost:5000/api/admin/students'),
-        api.get('http://localhost:5000/api/admin/admins'),
-        api.get('http://localhost:5000/api/admin/dashboard-stats'),
-        api.get('http://localhost:5000/api/admin/profile')
+        api.get('/admin/teachers'),
+        api.get('/admin/students'),
+        api.get('/admin/admins'),
+        api.get('/admin/dashboard-stats'),
+        api.get('/admin/profile')
       ]);
 
       setTeachers(tRes.data);
@@ -96,7 +93,7 @@ export default function AdminDashboard() {
     e.preventDefault();
     setError('');
     try {
-      await api.put('http://localhost:5000/api/admin/profile', profile);
+      await api.put('/admin/profile', profile);
       triggerSuccess('Profile credentials updated successfully');
       fetchData();
     } catch (err) {
@@ -108,7 +105,7 @@ export default function AdminDashboard() {
   const handleAddAdmin = async (e) => {
     e.preventDefault();
     try {
-      await api.post('http://localhost:5000/api/admin/admins', adminForm);
+      await api.post('/admin/admins', adminForm);
       setIsAdminModalOpen(false);
       setAdminForm({ name: '', email: '', password: '' });
       triggerSuccess('Admin added successfully');
@@ -122,7 +119,7 @@ export default function AdminDashboard() {
   const handleAddTeacher = async (e) => {
     e.preventDefault();
     try {
-      await api.post('http://localhost:5000/api/admin/teachers', teacherForm);
+      await api.post('/admin/teachers', teacherForm);
       setIsTeacherModalOpen(false);
       setTeacherForm({ name: '', email: '', password: '' });
       triggerSuccess('Teacher added successfully');
@@ -135,7 +132,7 @@ export default function AdminDashboard() {
   const handleUpdateTeacherStatus = async (id, currentStatus) => {
     const nextStatus = currentStatus === 'approved' ? 'suspended' : 'approved';
     try {
-      await api.put(`http://localhost:5000/api/admin/teachers/${id}/status`, { status: nextStatus });
+      await api.put(`/admin/teachers/${id}/status`, { status: nextStatus });
       triggerSuccess(`Teacher status updated to ${nextStatus}`);
       fetchData();
     } catch (err) {
@@ -146,7 +143,7 @@ export default function AdminDashboard() {
   const handleDeleteTeacher = async (id) => {
     if (!window.confirm('Are you sure you want to delete this teacher?')) return;
     try {
-      await api.delete(`http://localhost:5000/api/admin/teachers/${id}`);
+      await api.delete(`/admin/teachers/${id}`);
       triggerSuccess('Teacher deleted successfully');
       fetchData();
     } catch (err) {
@@ -158,7 +155,7 @@ export default function AdminDashboard() {
   const handleAddStudent = async (e) => {
     e.preventDefault();
     try {
-      await api.post('http://localhost:5000/api/admin/students', studentForm);
+      await api.post('/admin/students', studentForm);
       setIsStudentModalOpen(false);
       setStudentForm({ id: '', name: '', email: '', password: '' });
       triggerSuccess('Student added successfully');
@@ -171,7 +168,7 @@ export default function AdminDashboard() {
   const handleUpdateStudentStatus = async (id, currentStatus) => {
     const nextStatus = currentStatus === 'approved' ? 'suspended' : 'approved';
     try {
-      await api.put(`http://localhost:5000/api/admin/students/${id}/status`, { status: nextStatus });
+      await api.put(`/admin/students/${id}/status`, { status: nextStatus });
       triggerSuccess(`Student status updated to ${nextStatus}`);
       fetchData();
     } catch (err) {
@@ -182,7 +179,7 @@ export default function AdminDashboard() {
   const handleDeleteStudent = async (id) => {
     if (!window.confirm('Are you sure you want to delete this student?')) return;
     try {
-      await api.delete(`http://localhost:5000/api/admin/students/${id}`);
+      await api.delete(`/admin/students/${id}`);
       triggerSuccess('Student deleted successfully');
       fetchData();
     } catch (err) {

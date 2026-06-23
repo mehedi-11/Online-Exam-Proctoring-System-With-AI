@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api/axiosConfig';
+import emailjs from '@emailjs/browser';
 import { UserSquare, Mail, KeyRound, ArrowLeft, ShieldAlert, BadgeCheck, Eye, EyeOff } from 'lucide-react';
 import Navbar from '../components/Navbar';
 
@@ -18,6 +19,11 @@ export default function Register() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  
+  // OTP States
+  const [otpStep, setOtpStep] = useState(1); // 1 = Form, 2 = OTP Verification
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [enteredOtp, setEnteredOtp] = useState('');
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -30,21 +36,67 @@ export default function Register() {
     setError('');
     setSuccess('');
 
+    // If in Step 1, generate OTP and send via EmailJS
+    if (otpStep === 1) {
+      try {
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        setGeneratedOtp(otp);
+
+        const templateParams = {
+          to_name: formData.name,
+          to_email: formData.email,
+          email: formData.email, // Required by the "To Email" field in your template
+          otp: otp
+        };
+
+        await emailjs.send(
+          'service_1xya9pm',
+          'template_4db7mzc',
+          templateParams,
+          {
+            publicKey: 'bUF4GpGI4G1vouutS',
+          }
+        );
+
+        setOtpStep(2);
+        // Do not set success here, otherwise it hides the OTP form!
+      } catch (err) {
+        setError('Failed to send OTP. Please check your email or try again later.');
+        console.error('EmailJS Error:', err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Verify OTP if in Step 2
+    if (otpStep === 2) {
+      if (enteredOtp !== generatedOtp) {
+        setError('Invalid OTP. Please try again.');
+        setLoading(false);
+        return;
+      }
+      setSuccess(''); // Clear success message from OTP step
+    }
+
+    // Final API call for registration
     let endpoint = '';
     let payload = {};
 
     if (role === 'teacher') {
-      endpoint = 'http://localhost:5000/api/auth/register/teacher';
+      endpoint = '/auth/register/teacher';
       payload = { name: formData.name, email: formData.email, password: formData.password };
     } else {
-      endpoint = 'http://localhost:5000/api/auth/register/student';
+      endpoint = '/auth/register/student';
       payload = { id: formData.id, name: formData.name, email: formData.email, password: formData.password };
     }
 
     try {
-      const response = await axios.post(endpoint, payload);
+      const response = await api.post(endpoint, payload);
       setSuccess(response.data.message);
       setFormData({ id: '', name: '', email: '', password: '' });
+      setOtpStep(1); // Reset step
+      setEnteredOtp('');
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed. Please review credentials.');
     } finally {
@@ -97,7 +149,7 @@ export default function Register() {
             </div>
           )}
 
-          {!success && (
+          {!success && otpStep === 1 && (
             <form onSubmit={handleSubmit} className="space-y-5">
               {role === 'student' && (
                 <div>
@@ -149,14 +201,14 @@ export default function Register() {
                     value={formData.email}
                     onChange={handleChange}
                     required
-                    placeholder="name@example.com"
+                    placeholder="e.g. john@student.com"
                     className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Create Password</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Password</label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
                     <KeyRound size={18} />
@@ -168,7 +220,7 @@ export default function Register() {
                     onChange={handleChange}
                     required
                     placeholder="••••••••"
-                    className="w-full pl-10 pr-10 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition"
+                    className="w-full pl-10 pr-10 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition font-mono"
                   />
                   <button
                     type="button"
@@ -180,13 +232,51 @@ export default function Register() {
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="tomato-btn w-full py-3 mt-4"
-              >
-                {loading ? 'Submitting...' : 'Register'}
+              <button type="submit" disabled={loading} className="w-full tomato-btn py-3 mt-4 text-sm disabled:opacity-70 disabled:cursor-not-allowed">
+                {loading ? 'Processing...' : 'Verify Email'}
               </button>
+            </form>
+          )}
+
+          {!success && otpStep === 2 && (
+            <form onSubmit={handleSubmit} className="space-y-5 animate-fade-in">
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mb-4 text-center">
+                <p className="text-sm text-blue-800">
+                  We've sent a 6-digit OTP to <strong>{formData.email}</strong>.<br />
+                  Please enter it below to verify your email.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 text-center">Enter OTP</label>
+                <input
+                  type="text"
+                  maxLength="6"
+                  value={enteredOtp}
+                  onChange={(e) => setEnteredOtp(e.target.value.replace(/[^0-9]/g, ''))}
+                  required
+                  placeholder="123456"
+                  className="w-full text-center text-2xl tracking-[0.5em] py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:bg-white focus:border-tomato-500 focus:ring-1 focus:ring-tomato-500 smooth-transition font-mono"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => setOtpStep(1)} 
+                  disabled={loading}
+                  className="flex-1 py-3 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl smooth-transition disabled:opacity-70"
+                >
+                  Back
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={loading || enteredOtp.length !== 6} 
+                  className="flex-1 tomato-btn py-3 text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {loading ? 'Verifying...' : 'Verify & Register'}
+                </button>
+              </div>
             </form>
           )}
 

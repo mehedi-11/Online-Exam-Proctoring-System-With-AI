@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api, { API_BASE_URL } from '../api/axiosConfig';
 import { 
   BookOpen, Plus, Calendar, Clock, FileQuestion, Trash2, Check,
   Camera, AlertCircle, RefreshCw, Download, Trash, Award,
@@ -65,9 +65,7 @@ export default function TeacherDashboard() {
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
 
-  const api = axios.create({
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  // Axios Instance with JWT auth is now centralized in api
 
   useEffect(() => {
     if (!token) {
@@ -86,8 +84,8 @@ export default function TeacherDashboard() {
     setError('');
     try {
       const [eRes, pRes] = await Promise.all([
-        api.get('http://localhost:5000/api/teacher/exams'),
-        api.get('http://localhost:5000/api/teacher/profile')
+        api.get('/teacher/exams'),
+        api.get('/teacher/profile')
       ]);
 
       setExams(eRes.data);
@@ -112,8 +110,8 @@ export default function TeacherDashboard() {
   const fetchProctoringData = async () => {
     try {
       const [lRes, rRes] = await Promise.all([
-        api.get('http://localhost:5000/api/teacher/proctoring-logs'),
-        api.get('http://localhost:5000/api/proctor/raw-logs')
+        api.get('/teacher/proctoring-logs'),
+        api.get('/proctor/raw-logs')
       ]);
       setProctoringLogs(lRes.data);
       setRawLogs(rRes.data.logs);
@@ -125,7 +123,7 @@ export default function TeacherDashboard() {
   const fetchExamStudents = async (examId) => {
     setLoading(true);
     try {
-      const res = await api.get(`http://localhost:5000/api/teacher/exams/${examId}/students`);
+      const res = await api.get(`/teacher/exams/${examId}/students`);
       setExamStudents(res.data);
     } catch (err) {
       setError('Error fetching exam students');
@@ -151,7 +149,7 @@ export default function TeacherDashboard() {
     }
 
     try {
-      const res = await api.put('http://localhost:5000/api/teacher/profile', formData, {
+      const res = await api.put('/teacher/profile', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       triggerSuccess('Profile updated successfully');
@@ -166,7 +164,7 @@ export default function TeacherDashboard() {
     e.preventDefault();
     setError('');
     try {
-      await api.put('http://localhost:5000/api/teacher/change-password', pwData);
+      await api.put('/teacher/change-password', pwData);
       triggerSuccess('Password changed successfully');
       setPwData({ oldPassword: '', newPassword: '' });
     } catch (err) {
@@ -179,10 +177,10 @@ export default function TeacherDashboard() {
     e.preventDefault();
     try {
       if (isEditingExam) {
-        await api.put(`http://localhost:5000/api/teacher/exams/${examForm.id}`, examForm);
+        await api.put(`/teacher/exams/${examForm.id}`, examForm);
         triggerSuccess('Exam updated successfully');
       } else {
-        await api.post('http://localhost:5000/api/teacher/exams', examForm);
+        await api.post('/teacher/exams', examForm);
         triggerSuccess('Exam scheduled successfully');
       }
       setIsExamModalOpen(false);
@@ -195,7 +193,7 @@ export default function TeacherDashboard() {
   const handleDeleteExam = async (id) => {
     if (!window.confirm('Delete this exam? This will wipe all its questions and grades.')) return;
     try {
-      await api.delete(`http://localhost:5000/api/teacher/exams/${id}`);
+      await api.delete(`/teacher/exams/${id}`);
       triggerSuccess('Exam deleted');
       fetchData();
       if (selectedExamId === id) {
@@ -214,7 +212,7 @@ export default function TeacherDashboard() {
   const handleMakeLiveSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.post(`http://localhost:5000/api/teacher/exams/${examForm.id}/live`, {
+      await api.post(`/teacher/exams/${examForm.id}/live`, {
         is_live: true,
         exam_password: liveForm.password
       });
@@ -229,7 +227,7 @@ export default function TeacherDashboard() {
   const handleStopLive = async (id) => {
     if (!window.confirm('Stop this exam? Students will no longer be able to enter.')) return;
     try {
-      await api.post(`http://localhost:5000/api/teacher/exams/${id}/live`, {
+      await api.post(`/teacher/exams/${id}/live`, {
         is_live: false,
         exam_password: ''
       });
@@ -244,7 +242,7 @@ export default function TeacherDashboard() {
   const fetchQuestions = async (examId) => {
     setSelectedExamId(examId);
     try {
-      const res = await api.get(`http://localhost:5000/api/teacher/exams/${examId}/questions`);
+      const res = await api.get(`/teacher/exams/${examId}/questions`);
       setQuestions(res.data);
     } catch (err) {
       setError('Error fetching questions');
@@ -261,10 +259,10 @@ export default function TeacherDashboard() {
       };
 
       if (isEditingQuestion) {
-        await api.put(`http://localhost:5000/api/teacher/questions/${questionForm.id}`, payload);
+        await api.put(`/teacher/questions/${questionForm.id}`, payload);
         triggerSuccess('Question updated');
       } else {
-        await api.post('http://localhost:5000/api/teacher/questions', payload);
+        await api.post('/teacher/questions', payload);
         triggerSuccess('Question added');
       }
       setIsQuestionModalOpen(false);
@@ -278,7 +276,7 @@ export default function TeacherDashboard() {
   const handleDeleteQuestion = async (id) => {
     if (!window.confirm('Delete this question?')) return;
     try {
-      await api.delete(`http://localhost:5000/api/teacher/questions/${id}`);
+      await api.delete(`/teacher/questions/${id}`);
       triggerSuccess('Question deleted');
       fetchQuestions(selectedExamId);
       fetchData();
@@ -291,7 +289,7 @@ export default function TeacherDashboard() {
   const fetchExamResults = async (examId) => {
     setSelectedResultExamId(examId);
     try {
-      const res = await api.get(`http://localhost:5000/api/teacher/exams/${examId}/results`);
+      const res = await api.get(`/teacher/exams/${examId}/results`);
       setExamResults(res.data);
     } catch (err) {
       setError('Error fetching exam results');
@@ -302,7 +300,7 @@ export default function TeacherDashboard() {
     setSelectedStudentForAnswers({ id: studentId, name: studentName });
     setManualGrades({});
     try {
-      const res = await api.get(`http://localhost:5000/api/teacher/exams/${selectedResultExamId}/students/${studentId}/answers`);
+      const res = await api.get(`/teacher/exams/${selectedResultExamId}/students/${studentId}/answers`);
       setStudentAnswers(res.data);
       setIsAnswersModalOpen(true);
     } catch (err) {
@@ -312,7 +310,7 @@ export default function TeacherDashboard() {
 
   const handleManualGradeSubmit = async () => {
     try {
-      const res = await api.post(`http://localhost:5000/api/teacher/exams/${selectedResultExamId}/students/${selectedStudentForAnswers.id}/grade/manual`, {
+      const res = await api.post(`/teacher/exams/${selectedResultExamId}/students/${selectedStudentForAnswers.id}/grade/manual`, {
         grades: manualGrades
       });
       triggerSuccess(`Manual grading saved. Total Score: ${res.data.score}`);
@@ -338,7 +336,7 @@ export default function TeacherDashboard() {
 
     setLoading(true);
     try {
-      const res = await api.post(`http://localhost:5000/api/teacher/exams/${selectedResultExamId}/students/${selectedStudentForAnswers.id}/grade/ai`, {
+      const res = await api.post(`/teacher/exams/${selectedResultExamId}/students/${selectedStudentForAnswers.id}/grade/ai`, {
         gradesData
       });
       triggerSuccess(`AI Marking Complete! Total Score: ${res.data.score}`);
@@ -367,7 +365,7 @@ export default function TeacherDashboard() {
   const handleClearLogs = async () => {
     if (!window.confirm('Are you sure you want to permanently clear the proctoring log file?')) return;
     try {
-      await api.delete('http://localhost:5000/api/proctor/raw-logs');
+      await api.delete('/proctor/raw-logs');
       setRawLogs('');
       triggerSuccess('Logs cleared successfully.');
     } catch (err) {
@@ -446,7 +444,7 @@ export default function TeacherDashboard() {
           <div className="flex items-center gap-3 px-2">
             {profile.profile_image ? (
               <img 
-                src={`http://localhost:5000${profile.profile_image}`} 
+                src={`${API_BASE_URL}${profile.profile_image}`} 
                 alt="Teacher" 
                 className="w-10 h-10 rounded-full object-cover border border-tomato-500 shadow-sm"
                 onError={(e) => { e.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + profile.name; }}
@@ -896,7 +894,7 @@ export default function TeacherDashboard() {
                             </td>
                             <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
                               <button 
-                                onClick={() => window.open(`http://localhost:5000/api/teacher/exams/${selectedLogExamId}/logs/download`, '_blank')}
+                                onClick={() => window.open(`${API_BASE_URL}/api/teacher/exams/${selectedLogExamId}/logs/download`, '_blank')}
                                 className="px-3 py-1.5 bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 transition-colors text-xs flex items-center gap-1"
                               >
                                 <Download size={14} /> Log File

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import axios from 'axios';
+import api, { API_BASE_URL } from '../api/axiosConfig';
 import { 
   Camera, ShieldAlert, AlertTriangle, Play, HelpCircle, 
   CheckSquare, ArrowLeft, Clock, ShieldCheck, Terminal
@@ -36,10 +36,7 @@ export default function ExamInterface() {
   const [error, setError] = useState('');
   const [showLogFeed, setShowLogFeed] = useState([]); // Local log stream on exam screen
 
-  const api = axios.create({
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
+  // API setup centralized in axiosConfig
   // 1. Initial Exam Check & Webcam access
   useEffect(() => {
     if (!token) {
@@ -107,7 +104,7 @@ export default function ExamInterface() {
     const autoSaveTimer = setInterval(async () => {
       if (Object.keys(answers).length > 0) {
         try {
-          await api.post(`http://localhost:5000/api/student/exams/${examId}/auto-save`, { answers });
+          await api.post(`/student/exams/${examId}/auto-save`, { answers });
         } catch (err) {
           console.warn('Auto-save failed', err);
         }
@@ -119,7 +116,7 @@ export default function ExamInterface() {
       logCheating('Exit Attempt', 'Student tried to close or refresh the exam page early.');
       // Auto-save before unload if possible (browsers often block async inside beforeunload, but we try)
       if (Object.keys(answers).length > 0) {
-        navigator.sendBeacon(`http://localhost:5000/api/student/exams/${examId}/auto-save`, JSON.stringify({ answers }));
+        navigator.sendBeacon(`${API_BASE_URL}/api/student/exams/${examId}/auto-save`, JSON.stringify({ answers }));
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -163,7 +160,7 @@ export default function ExamInterface() {
     setError('');
     try {
       // Start/Get exam attempt
-      const attemptRes = await api.post(`http://localhost:5000/api/student/exams/${examId}/start`, { exam_password: password });
+      const attemptRes = await api.post(`/student/exams/${examId}/start`, { exam_password: password });
       const attempt = attemptRes.data;
 
       setDemerits(attempt.demerit_points);
@@ -176,7 +173,7 @@ export default function ExamInterface() {
       }
 
       // Fetch exams catalog for duration and title
-      const examsRes = await api.get('http://localhost:5000/api/student/exams');
+      const examsRes = await api.get('/student/exams');
       const activeExam = examsRes.data.find(e => e.id === parseInt(examId));
       if (activeExam) {
         setExamTitle(activeExam.title);
@@ -202,8 +199,8 @@ export default function ExamInterface() {
   const loadQuestions = async () => {
     try {
       const [qRes, aRes] = await Promise.all([
-        api.get(`http://localhost:5000/api/student/exams/${examId}/questions`),
-        api.get(`http://localhost:5000/api/student/exams/${examId}/answers`)
+        api.get(`/student/exams/${examId}/questions`),
+        api.get(`/student/exams/${examId}/answers`)
       ]);
       setQuestions(qRes.data);
       if (aRes.data) {
@@ -239,7 +236,7 @@ export default function ExamInterface() {
     setShowLogFeed(prev => [`[${now}] Triggered: ${activityType}`, ...prev.slice(0, 4)]);
 
     try {
-      const res = await api.post('http://localhost:5000/api/proctor/log-incident', {
+      const res = await api.post('/proctor/log-incident', {
         examId: parseInt(examId),
         studentId: user.id,
         activityType,
@@ -263,7 +260,7 @@ export default function ExamInterface() {
   // Submit Exam
   const handleSubmitExam = async (isAuto = false) => {
     try {
-      const res = await api.post(`http://localhost:5000/api/student/exams/${examId}/submit`, { answers });
+      const res = await api.post(`/student/exams/${examId}/submit`, { answers });
       alert(isAuto ? 'Time is up! Your exam has been auto-submitted.' : 'Exam submitted successfully.');
       navigate('/dashboard/student');
     } catch (err) {

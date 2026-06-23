@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api, { API_BASE_URL } from '../api/axiosConfig';
 import { 
   Calendar, BookOpen, KeyRound, CheckCircle2, ShieldAlert, 
   Hourglass, Play, RefreshCw, GraduationCap,
@@ -33,10 +33,7 @@ export default function StudentDashboard() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const api = axios.create({
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
+  // Centralized API is now used directly
   useEffect(() => {
     if (!token) {
       navigate('/login/student');
@@ -50,8 +47,8 @@ export default function StudentDashboard() {
     setError('');
     try {
       const [exRes, pRes] = await Promise.all([
-        api.get('http://localhost:5000/api/student/exams'),
-        api.get('http://localhost:5000/api/student/profile')
+        api.get('/student/exams'),
+        api.get('/student/profile')
       ]);
       setExams(exRes.data);
       setProfile(pRes.data);
@@ -78,7 +75,7 @@ export default function StudentDashboard() {
     setError('');
     setSuccess('');
     try {
-      await api.put('http://localhost:5000/api/student/change-password', pwData);
+      await api.put('/student/change-password', pwData);
       triggerSuccess('Password updated successfully');
       setPwData({ oldPassword: '', newPassword: '' });
     } catch (err) {
@@ -156,7 +153,7 @@ export default function StudentDashboard() {
           <div className="flex items-center gap-3 px-2">
             {profile.profile_image ? (
               <img 
-                src={`http://localhost:5000${profile.profile_image}`} 
+                src={`${API_BASE_URL}${profile.profile_image}`} 
                 alt="Student" 
                 className="w-10 h-10 rounded-full object-cover border border-tomato-500 shadow-sm"
                 onError={(e) => { e.target.src = 'https://api.dicebear.com/7.x/initials/svg?seed=' + profile.name; }}
