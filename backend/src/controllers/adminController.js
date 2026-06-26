@@ -220,17 +220,71 @@ exports.deleteStudent = async (req, res) => {
   }
 };
 
+// --- ADMIN EXAM MANAGEMENT ---
+exports.getAllExams = async (req, res) => {
+  try {
+    const query = `
+      SELECT e.id, e.title, e.exam_date, e.duration_minutes, e.end_time, e.type, e.is_live,
+             t.name AS teacher_name, t.email AS teacher_email
+      FROM exams e
+      LEFT JOIN teachers t ON e.teacher_id = t.id
+      ORDER BY e.exam_date DESC
+    `;
+    const [rows] = await db.query(query);
+    return res.json(rows);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error fetching exams' });
+  }
+};
+
+exports.deleteExam = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query('DELETE FROM exams WHERE id = ?', [id]);
+    return res.json({ message: 'Exam deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error deleting exam' });
+  }
+};
+
+// --- ADMIN NOTIFICATIONS ---
+exports.getNotifications = async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM admin_notifications ORDER BY created_at DESC');
+    return res.json(rows);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error fetching notifications' });
+  }
+};
+
+exports.markNotificationsRead = async (req, res) => {
+  try {
+    await db.query('UPDATE admin_notifications SET is_read = TRUE WHERE is_read = FALSE');
+    return res.json({ message: 'Notifications marked as read' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error updating notifications' });
+  }
+};
+
 // --- DASHBOARD STATS ---
 exports.getDashboardStats = async (req, res) => {
   try {
     const [[{ totalTeachers }]] = await db.query("SELECT COUNT(*) AS totalTeachers FROM teachers");
     const [[{ totalStudents }]] = await db.query("SELECT COUNT(*) AS totalStudents FROM students");
-    const [[{ totalLiveExams }]] = await db.query("SELECT COUNT(*) AS totalLiveExams FROM exams");
+    const [[{ totalExamsCreated }]] = await db.query("SELECT COUNT(*) AS totalExamsCreated FROM exams");
+    const [[{ totalLiveExams }]] = await db.query("SELECT COUNT(*) AS totalLiveExams FROM exams WHERE is_live = 1");
+    const [[{ totalExamsDone }]] = await db.query("SELECT COUNT(*) AS totalExamsDone FROM student_exams WHERE status = 'completed'");
     
     return res.json({
       totalTeachers,
       totalStudents,
-      totalLiveExams
+      totalExamsCreated,
+      totalLiveExams,
+      totalExamsDone
     });
   } catch (error) {
     console.error(error);

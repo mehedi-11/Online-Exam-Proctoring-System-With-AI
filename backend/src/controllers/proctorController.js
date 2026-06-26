@@ -6,7 +6,14 @@ const logFilePath = path.join(__dirname, '../../cheating_activity.log');
 
 // Log a proctoring incident (YOLOv8 simulated frames or client event triggers)
 exports.logIncident = async (req, res) => {
-  const { examId, studentId, activityType, details } = req.body;
+  const { examId, activityType, details } = req.body;
+  let studentId = req.body.studentId;
+
+  // Security check: Use the authenticated user's ID if the requester is a student
+  if (req.user && req.user.role === 'student') {
+    studentId = req.user.id;
+  }
+
   if (!examId || !studentId || !activityType) {
     return res.status(400).json({ message: 'examId, studentId, and activityType are required' });
   }

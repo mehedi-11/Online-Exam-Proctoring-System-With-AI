@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
+if (!process.env.JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET is not defined in environment variables. Exiting...");
+  process.exit(1);
+}
+
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   if (!authHeader) {

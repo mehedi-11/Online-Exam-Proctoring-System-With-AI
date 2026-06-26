@@ -14,7 +14,9 @@ CREATE TABLE admins (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100),
   email VARCHAR(100) UNIQUE,
-  password VARCHAR(255)
+  password VARCHAR(255),
+  reset_token VARCHAR(255) DEFAULT NULL,
+  reset_token_expiry DATETIME DEFAULT NULL
 );
 
 CREATE TABLE teachers (
@@ -25,7 +27,9 @@ CREATE TABLE teachers (
   profile_image VARCHAR(255) DEFAULT NULL,
   status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
   joining_date DATE DEFAULT CURRENT_DATE,
-  llm_api_key VARCHAR(255) DEFAULT NULL
+  llm_api_key VARCHAR(255) DEFAULT NULL,
+  reset_token VARCHAR(255) DEFAULT NULL,
+  reset_token_expiry DATETIME DEFAULT NULL
 );
 
 CREATE TABLE students (
@@ -34,7 +38,9 @@ CREATE TABLE students (
   email VARCHAR(100) UNIQUE,
   password VARCHAR(255),
   profile_image VARCHAR(255) DEFAULT NULL,
-  status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending'
+  status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+  reset_token VARCHAR(255) DEFAULT NULL,
+  reset_token_expiry DATETIME DEFAULT NULL
 );
 
 CREATE TABLE exams (
@@ -101,6 +107,13 @@ CREATE TABLE proctoring_logs (
   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
   FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+);
+
+CREATE TABLE admin_notifications (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  message TEXT NOT NULL,
+  is_read BOOLEAN DEFAULT FALSE,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Passwords for testing:

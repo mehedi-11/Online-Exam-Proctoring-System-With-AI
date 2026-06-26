@@ -17,6 +17,14 @@ router.get('/dashboard-stats', adminController.getDashboardStats);
 router.get('/admins', adminController.getAdmins);
 router.post('/admins', adminController.addAdmin);
 
+// Exam Management
+router.get('/all-exams', adminController.getAllExams);
+router.delete('/exams/:id', adminController.deleteExam);
+
+// Notifications
+router.get('/notifications', adminController.getNotifications);
+router.put('/notifications/mark-read', adminController.markNotificationsRead);
+
 // Teacher management
 router.get('/teachers', adminController.getTeachers);
 router.post('/teachers', adminController.addTeacher);
@@ -28,7 +36,5 @@ router.get('/students', adminController.getStudents);
 router.post('/students', adminController.addStudent);
 router.put('/students/:id/status', adminController.updateStudentStatus);
 router.delete('/students/:id', adminController.deleteStudent);
-
-
 
 module.exports = router;

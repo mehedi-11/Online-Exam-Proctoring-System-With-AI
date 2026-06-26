@@ -4,7 +4,8 @@ import api from '../api/axiosConfig';
 import { 
   Users, UserCheck, UserCog, ShieldAlert, Check, X, 
   Trash2, ShieldCheck, Plus, RefreshCw, UserMinus,
-  Menu, LogOut, Eye, EyeOff, LayoutDashboard, Shield
+  Menu, LogOut, Eye, EyeOff, LayoutDashboard, Shield,
+  FileText, Bell, Search, Activity
 } from 'lucide-react';
 import Modal from '../components/Modal';
 
@@ -15,12 +16,15 @@ export default function AdminDashboard() {
   const [activeUserTab, setActiveUserTab] = useState('students');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // Data State
   const [teachers, setTeachers] = useState([]);
   const [students, setStudents] = useState([]);
   const [admins, setAdmins] = useState([]);
-  const [stats, setStats] = useState({ totalTeachers: 0, totalStudents: 0, totalLiveExams: 0 });
+  const [exams, setExams] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [stats, setStats] = useState({ totalTeachers: 0, totalStudents: 0, totalLiveExams: 0, totalExamsCreated: 0, totalExamsDone: 0 });
   const [profile, setProfile] = useState({ name: '', email: '', password: '' });
+  const [studentSearch, setStudentSearch] = useState('');
+  const [teacherSearch, setTeacherSearch] = useState('');
   
   // UI State
   const [loading, setLoading] = useState(false);
@@ -56,12 +60,14 @@ export default function AdminDashboard() {
     setLoading(true);
     setError('');
     try {
-      const [tRes, sRes, aRes, stRes, pRes] = await Promise.all([
+      const [tRes, sRes, aRes, stRes, pRes, eRes, nRes] = await Promise.all([
         api.get('/admin/teachers'),
         api.get('/admin/students'),
         api.get('/admin/admins'),
         api.get('/admin/dashboard-stats'),
-        api.get('/admin/profile')
+        api.get('/admin/profile'),
+        api.get('/admin/all-exams'),
+        api.get('/admin/notifications')
       ]);
 
       setTeachers(tRes.data);
@@ -69,6 +75,8 @@ export default function AdminDashboard() {
       setAdmins(aRes.data);
       setStats(stRes.data);
       setProfile({ ...pRes.data, password: '' });
+      setExams(eRes.data);
+      setNotifications(nRes.data);
     } catch (err) {
       console.error(err);
       if (err.response?.status === 401 || err.response?.status === 403) {
@@ -226,6 +234,8 @@ export default function AdminDashboard() {
             {[
               { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
               { id: 'users', label: 'Manage Users', icon: Users },
+              { id: 'exams', label: 'Manage Exams', icon: FileText },
+              { id: 'notifications', label: 'Notifications', icon: Bell },
               { id: 'admins', label: 'Admins', icon: Shield },
               { id: 'profile', label: 'Admin Credentials', icon: UserCog }
             ].map(tab => (
@@ -320,35 +330,45 @@ export default function AdminDashboard() {
                 <span>System Statistics</span>
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 flex items-center gap-4">
-                  <div className="bg-blue-500 text-white p-3 rounded-xl">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+                  <div className="bg-blue-500 text-white p-3 rounded-xl mb-3">
                     <Users size={24} />
                   </div>
-                  <div>
-                    <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Students</p>
-                    <p className="text-3xl font-black text-dark-900">{stats.totalStudents}</p>
-                  </div>
+                  <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-1">Total Students</p>
+                  <p className="text-3xl font-black text-dark-900">{stats.totalStudents}</p>
                 </div>
 
-                <div className="bg-green-50 border border-green-100 rounded-2xl p-6 flex items-center gap-4">
-                  <div className="bg-green-500 text-white p-3 rounded-xl">
+                <div className="bg-green-50 border border-green-100 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+                  <div className="bg-green-500 text-white p-3 rounded-xl mb-3">
                     <UserCheck size={24} />
                   </div>
-                  <div>
-                    <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Teachers</p>
-                    <p className="text-3xl font-black text-dark-900">{stats.totalTeachers}</p>
-                  </div>
+                  <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-1">Total Teachers</p>
+                  <p className="text-3xl font-black text-dark-900">{stats.totalTeachers}</p>
                 </div>
 
-                <div className="bg-purple-50 border border-purple-100 rounded-2xl p-6 flex items-center gap-4">
-                  <div className="bg-purple-500 text-white p-3 rounded-xl">
-                    <LayoutDashboard size={24} />
+                <div className="bg-yellow-50 border border-yellow-100 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+                  <div className="bg-yellow-500 text-white p-3 rounded-xl mb-3">
+                    <FileText size={24} />
                   </div>
-                  <div>
-                    <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Live Exams</p>
-                    <p className="text-3xl font-black text-dark-900">{stats.totalLiveExams}</p>
+                  <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-1">Exams Created</p>
+                  <p className="text-3xl font-black text-dark-900">{stats.totalExamsCreated}</p>
+                </div>
+
+                <div className="bg-purple-50 border border-purple-100 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+                  <div className="bg-purple-500 text-white p-3 rounded-xl mb-3">
+                    <Check size={24} />
                   </div>
+                  <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-1">Exams Done</p>
+                  <p className="text-3xl font-black text-dark-900">{stats.totalExamsDone}</p>
+                </div>
+
+                <div className="bg-red-50 border border-red-100 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
+                  <div className="bg-red-500 text-white p-3 rounded-xl mb-3">
+                    <Activity size={24} />
+                  </div>
+                  <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mb-1">Live Exams</p>
+                  <p className="text-3xl font-black text-dark-900">{stats.totalLiveExams}</p>
                 </div>
               </div>
             </div>
@@ -387,11 +407,23 @@ export default function AdminDashboard() {
               {/* STUDENTS TAB */}
               {activeUserTab === 'students' && (
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <h4 className="font-bold text-dark-900">Student List</h4>
-                    <button onClick={() => setIsStudentModalOpen(true)} className="tomato-btn py-2 text-xs flex items-center gap-1">
-                      <Plus size={14} /> <span>Add Student</span>
-                    </button>
+                    <div className="flex items-center gap-3 w-full md:w-auto">
+                      <div className="relative flex-grow md:w-64">
+                        <Search className="absolute left-3 top-2 text-gray-400" size={16} />
+                        <input 
+                          type="text" 
+                          placeholder="Search by ID or Name..."
+                          value={studentSearch}
+                          onChange={(e) => setStudentSearch(e.target.value)}
+                          className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500"
+                        />
+                      </div>
+                      <button onClick={() => setIsStudentModalOpen(true)} className="tomato-btn py-2 text-xs flex items-center gap-1 shrink-0">
+                        <Plus size={14} /> <span className="hidden sm:inline">Add Student</span>
+                      </button>
+                    </div>
                   </div>
                   <div className="overflow-x-auto border border-gray-150 rounded-xl">
                     <table className="w-full text-left text-xs border-collapse">
@@ -405,7 +437,7 @@ export default function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-150">
-                        {students.map(student => (
+                        {students.filter(s => s.name.toLowerCase().includes(studentSearch.toLowerCase()) || s.id.toLowerCase().includes(studentSearch.toLowerCase())).map(student => (
                           <tr key={student.id} className="hover:bg-gray-50/50">
                             <td className="p-4 font-mono font-bold text-dark-900">{student.id}</td>
                             <td className="p-4 font-bold text-dark-900">{student.name}</td>
@@ -438,11 +470,23 @@ export default function AdminDashboard() {
               {/* TEACHERS TAB */}
               {activeUserTab === 'teachers' && (
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <h4 className="font-bold text-dark-900">Approved Teachers</h4>
-                    <button onClick={() => setIsTeacherModalOpen(true)} className="tomato-btn py-2 text-xs flex items-center gap-1">
-                      <Plus size={14} /> <span>Add Teacher</span>
-                    </button>
+                    <div className="flex items-center gap-3 w-full md:w-auto">
+                      <div className="relative flex-grow md:w-64">
+                        <Search className="absolute left-3 top-2 text-gray-400" size={16} />
+                        <input 
+                          type="text" 
+                          placeholder="Search by Name or Email..."
+                          value={teacherSearch}
+                          onChange={(e) => setTeacherSearch(e.target.value)}
+                          className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500"
+                        />
+                      </div>
+                      <button onClick={() => setIsTeacherModalOpen(true)} className="tomato-btn py-2 text-xs flex items-center gap-1 shrink-0">
+                        <Plus size={14} /> <span className="hidden sm:inline">Add Teacher</span>
+                      </button>
+                    </div>
                   </div>
                   <div className="overflow-x-auto border border-gray-150 rounded-xl">
                     <table className="w-full text-left text-xs border-collapse">
@@ -456,7 +500,7 @@ export default function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-150">
-                        {teachers.filter(t => t.status !== 'pending').map(teacher => (
+                        {teachers.filter(t => t.status !== 'pending' && (t.name.toLowerCase().includes(teacherSearch.toLowerCase()) || t.email.toLowerCase().includes(teacherSearch.toLowerCase()))).map(teacher => (
                           <tr key={teacher.id} className="hover:bg-gray-50/50">
                             <td className="p-4 font-bold text-dark-900">{teacher.name}</td>
                             <td className="p-4">{teacher.email}</td>
@@ -485,6 +529,92 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB: EXAMS */}
+          {activeTab === 'exams' && (
+            <div className="space-y-6 animate-fade-in">
+              <h3 className="text-lg font-bold text-dark-900">Manage Exams</h3>
+              <div className="overflow-x-auto border border-gray-150 rounded-xl">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-150 text-gray-500 font-bold uppercase tracking-wider">
+                      <th className="p-4">Title</th>
+                      <th className="p-4">Teacher</th>
+                      <th className="p-4">Date</th>
+                      <th className="p-4">Type</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-150">
+                    {exams.map(exam => (
+                      <tr key={exam.id} className="hover:bg-gray-50/50">
+                        <td className="p-4 font-bold text-dark-900">{exam.title}</td>
+                        <td className="p-4">{exam.teacher_name} ({exam.teacher_email})</td>
+                        <td className="p-4">{new Date(exam.exam_date).toLocaleString()}</td>
+                        <td className="p-4">{exam.type}</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${exam.is_live ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-gray-100 text-gray-700 border border-gray-200'}`}>
+                            {exam.is_live ? 'LIVE' : 'OFFLINE'}
+                          </span>
+                        </td>
+                        <td className="p-4 flex justify-center">
+                          <button onClick={async () => {
+                            if (!window.confirm('Are you sure you want to delete this exam?')) return;
+                            try {
+                              await api.delete(`/admin/exams/${exam.id}`);
+                              triggerSuccess('Exam deleted successfully');
+                              fetchData();
+                            } catch (err) {
+                              setError('Error deleting exam');
+                            }
+                          }} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg">
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {exams.length === 0 && <tr><td colSpan="6" className="p-4 text-center text-gray-500">No exams found.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: NOTIFICATIONS */}
+          {activeTab === 'notifications' && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <h3 className="text-lg font-bold text-dark-900">Notifications</h3>
+                <button 
+                  onClick={async () => {
+                    try {
+                      await api.put('/admin/notifications/mark-read');
+                      fetchData();
+                    } catch (err) {
+                      setError('Failed to mark notifications as read.');
+                    }
+                  }}
+                  className="tomato-btn-outline py-2 text-xs flex items-center gap-1"
+                >
+                  <Check size={14} />
+                  <span>Mark All as Read</span>
+                </button>
+              </div>
+              <div className="space-y-3">
+                {notifications.map(notif => (
+                  <div key={notif.id} className={`p-4 rounded-xl border ${notif.is_read ? 'bg-white border-gray-150 text-gray-600' : 'bg-blue-50 border-blue-200 text-dark-900'}`}>
+                    <p className="text-sm font-semibold flex items-start gap-2">
+                      {!notif.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0"></span>}
+                      {notif.message}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-2 font-bold ml-4">{new Date(notif.created_at).toLocaleString()}</p>
+                  </div>
+                ))}
+                {notifications.length === 0 && <p className="text-gray-500 text-sm">No notifications found.</p>}
+              </div>
             </div>
           )}
 

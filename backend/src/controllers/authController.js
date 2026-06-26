@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 // --- RATE LIMITING HELPERS ---
 const checkRateLimit = async (identifier) => {
@@ -274,21 +275,34 @@ exports.studentLogin = async (req, res) => {
 exports.verifyIdentifier = async (req, res) => {
   const { role, identifier } = req.body;
   try {
-    let emailToReturn = identifier;
+    let tableName = '';
+    let idColumn = '';
+    
     if (role === 'student') {
-      const [rows] = await db.query('SELECT email, name FROM students WHERE id = ?', [identifier]);
-      if (rows.length === 0) return res.status(404).json({ message: 'Student ID not found' });
-      return res.json({ email: rows[0].email, name: rows[0].name });
+      tableName = 'students';
+      idColumn = 'id';
     } else if (role === 'teacher') {
-      const [rows] = await db.query('SELECT email, name FROM teachers WHERE email = ?', [identifier]);
-      if (rows.length === 0) return res.status(404).json({ message: 'Teacher email not found' });
-      return res.json({ email: rows[0].email, name: rows[0].name });
+      tableName = 'teachers';
+      idColumn = 'email';
     } else if (role === 'admin') {
-      const [rows] = await db.query('SELECT email, name FROM admins WHERE email = ?', [identifier]);
-      if (rows.length === 0) return res.status(404).json({ message: 'Admin email not found' });
-      return res.json({ email: rows[0].email, name: rows[0].name });
+      tableName = 'admins';
+      idColumn = 'email';
+    } else {
+      return res.status(400).json({ message: 'Invalid role' });
     }
-    return res.status(400).json({ message: 'Invalid role' });
+
+    const [rows] = await db.query(`SELECT email, name FROM ${tableName} WHERE ${idColumn} = ?`, [identifier]);
+    if (rows.length === 0) return res.status(404).json({ message: 'Account not found' });
+    
+    const resetToken = crypto.randomInt(100000, 999999).toString();
+    const tokenExpiry = new Date();
+    tokenExpiry.setMinutes(tokenExpiry.getMinutes() + 15); // 15 mins expiry
+    
+    await db.query(`UPDATE ${tableName} SET reset_token = ?, reset_token_expiry = ? WHERE ${idColumn} = ?`, [resetToken, tokenExpiry, identifier]);
+    
+    console.log(`[PASSWORD RESET] OTP for ${identifier} is ${resetToken}`);
+    
+    return res.json({ email: rows[0].email, name: rows[0].name, message: 'OTP sent successfully (Check server console for OTP)' });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: 'Server error verifying identifier' });
@@ -296,23 +310,39 @@ exports.verifyIdentifier = async (req, res) => {
 };
 
 exports.resetPassword = async (req, res) => {
-  const { role, identifier, newPassword } = req.body;
-  if (!role || !identifier || !newPassword) {
-    return res.status(400).json({ message: 'All fields are required' });
+  const { role, identifier, newPassword, resetToken } = req.body;
+  if (!role || !identifier || !newPassword || !resetToken) {
+    return res.status(400).json({ message: 'All fields including OTP are required' });
   }
 
   try {
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    let tableName = '';
+    let idColumn = '';
     
     if (role === 'student') {
-      await db.query('UPDATE students SET password = ? WHERE id = ?', [hashedPassword, identifier]);
+      tableName = 'students';
+      idColumn = 'id';
     } else if (role === 'teacher') {
-      await db.query('UPDATE teachers SET password = ? WHERE email = ?', [hashedPassword, identifier]);
+      tableName = 'teachers';
+      idColumn = 'email';
     } else if (role === 'admin') {
-      await db.query('UPDATE admins SET password = ? WHERE email = ?', [hashedPassword, identifier]);
+      tableName = 'admins';
+      idColumn = 'email';
+    } else {
+      return res.status(400).json({ message: 'Invalid role' });
     }
 
-    // Unblock the user on successful reset
+    const [rows] = await db.query(`SELECT reset_token, reset_token_expiry FROM ${tableName} WHERE ${idColumn} = ?`, [identifier]);
+    if (rows.length === 0) return res.status(404).json({ message: 'Account not found' });
+    
+    const user = rows[0];
+    if (user.reset_token !== resetToken || new Date() > new Date(user.reset_token_expiry)) {
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.query(`UPDATE ${tableName} SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE ${idColumn} = ?`, [hashedPassword, identifier]);
+
     await handleSuccessfulLogin(identifier);
 
     return res.json({ message: 'Password reset successfully. You can now login.' });

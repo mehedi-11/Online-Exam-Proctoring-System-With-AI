@@ -10,7 +10,10 @@ exports.getProfile = async (req, res) => {
       [req.user.id]
     );
     if (rows.length === 0) return res.status(404).json({ message: 'Teacher not found' });
-    return res.json(rows[0]);
+    const teacher = rows[0];
+    teacher.has_llm_api_key = !!teacher.llm_api_key;
+    delete teacher.llm_api_key;
+    return res.json(teacher);
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Server error fetching profile' });
@@ -47,7 +50,10 @@ exports.updateProfile = async (req, res) => {
       [req.user.id]
     );
 
-    return res.json({ message: 'Profile updated successfully', user: rows[0] });
+    const teacher = rows[0];
+    teacher.has_llm_api_key = !!teacher.llm_api_key;
+    delete teacher.llm_api_key;
+    return res.json({ message: 'Profile updated successfully', user: teacher });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Server error updating profile' });
@@ -102,23 +108,18 @@ exports.getExams = async (req, res) => {
 };
 
 exports.createExam = async (req, res) => {
-  const { title, exam_date, duration_minutes, type, must_on_camera, must_on_microphone } = req.body;
+  const { title, exam_date, duration_minutes, type, must_on_camera, must_on_microphone, exam_password } = req.body;
   if (!title || !exam_date || !duration_minutes || !type) {
     return res.status(400).json({ message: 'All fields are required' });
   }
-  
-  // Calculate end_time
-  const startDate = new Date(exam_date);
-  const endDate = new Date(startDate.getTime() + duration_minutes * 60000);
-  
-  // Convert back to MySQL format YYYY-MM-DD HH:MM:SS
-  const formatSqlDate = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
 
   try {
     const [result] = await db.query(
-      'INSERT INTO exams (title, exam_date, duration_minutes, end_time, type, must_on_camera, must_on_microphone, teacher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [title, formatSqlDate(startDate), duration_minutes, formatSqlDate(endDate), type, must_on_camera ?? true, must_on_microphone ?? true, req.user.id]
+      'INSERT INTO exams (title, exam_date, duration_minutes, type, teacher_id, must_on_camera, must_on_microphone, exam_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [title, exam_date, duration_minutes, type, req.user.id, must_on_camera ?? true, must_on_microphone ?? true, exam_password || null]
     );
+
+    await db.query('INSERT INTO admin_notifications (message) VALUES (?)', [`Teacher ${req.user.name} created a new exam: ${title}`]);
 
     return res.status(201).json({ message: 'Exam created successfully', examId: result.insertId });
   } catch (error) {
@@ -129,22 +130,22 @@ exports.createExam = async (req, res) => {
 
 exports.updateExam = async (req, res) => {
   const { id } = req.params;
-  const { title, exam_date, duration_minutes, type, must_on_camera, must_on_microphone } = req.body;
+  const { title, exam_date, duration_minutes, type, must_on_camera, must_on_microphone, exam_password } = req.body;
   
   if (!title || !exam_date || !duration_minutes || !type) {
     return res.status(400).json({ message: 'All fields are required' });
   }
   
-  const startDate = new Date(exam_date);
-  const endDate = new Date(startDate.getTime() + duration_minutes * 60000);
-  const formatSqlDate = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
-
   try {
     const [result] = await db.query(
-      'UPDATE exams SET title=?, exam_date=?, duration_minutes=?, end_time=?, type=?, must_on_camera=?, must_on_microphone=? WHERE id=? AND teacher_id=?',
-      [title, formatSqlDate(startDate), duration_minutes, formatSqlDate(endDate), type, must_on_camera ?? true, must_on_microphone ?? true, id, req.user.id]
+      `UPDATE exams SET title=?, exam_date=?, duration_minutes=?, type=?, must_on_camera=?, must_on_microphone=?, exam_password=?
+       WHERE id=? AND teacher_id=?`,
+      [title, exam_date, duration_minutes, type, must_on_camera ?? true, must_on_microphone ?? true, exam_password || null, id, req.user.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Exam not found or unauthorized' });
+
+    await db.query('INSERT INTO admin_notifications (message) VALUES (?)', [`Teacher ${req.user.name} updated the exam: ${title}`]);
+
     return res.json({ message: 'Exam updated successfully' });
   } catch (error) {
     console.error(error);
@@ -155,8 +156,14 @@ exports.updateExam = async (req, res) => {
 exports.deleteExam = async (req, res) => {
   const { id } = req.params;
   try {
+    const [exam] = await db.query('SELECT title FROM exams WHERE id = ? AND teacher_id = ?', [id, req.user.id]);
+    const examTitle = exam.length > 0 ? exam[0].title : `ID ${id}`;
+
     const [result] = await db.query('DELETE FROM exams WHERE id = ? AND teacher_id = ?', [id, req.user.id]);
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Exam not found or unauthorized' });
+
+    await db.query('INSERT INTO admin_notifications (message) VALUES (?)', [`Teacher ${req.user.name} deleted the exam: ${examTitle}`]);
+
     return res.json({ message: 'Exam deleted successfully' });
   } catch (error) {
     console.error(error);
@@ -169,11 +176,18 @@ exports.toggleExamLive = async (req, res) => {
   const { is_live, exam_password } = req.body;
   
   try {
+    const [exam] = await db.query('SELECT title FROM exams WHERE id = ? AND teacher_id = ?', [id, req.user.id]);
+    const examTitle = exam.length > 0 ? exam[0].title : `ID ${id}`;
+
     const [result] = await db.query(
       'UPDATE exams SET is_live=?, exam_password=? WHERE id=? AND teacher_id=?',
       [is_live ? 1 : 0, is_live ? exam_password : null, id, req.user.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Exam not found or unauthorized' });
+
+    const statusStr = is_live ? 'LIVE' : 'OFFLINE';
+    await db.query('INSERT INTO admin_notifications (message) VALUES (?)', [`Teacher ${req.user.name} changed exam status to ${statusStr}: ${examTitle}`]);
+
     return res.json({ message: is_live ? 'Exam is now live!' : 'Exam is no longer live.' });
   } catch (error) {
     console.error(error);
@@ -207,6 +221,9 @@ exports.createQuestion = async (req, res) => {
   }
 
   try {
+    const [exam] = await db.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [exam_id, req.user.id]);
+    if (exam.length === 0) return res.status(403).json({ message: 'Unauthorized' });
+
     await db.query(
       `INSERT INTO exam_questions (exam_id, type, question_text, marks, option_a, option_b, option_c, option_d, correct_option)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -229,6 +246,13 @@ exports.updateQuestion = async (req, res) => {
   }
 
   try {
+    const [exam] = await db.query(`
+      SELECT e.id FROM exams e 
+      JOIN exam_questions eq ON e.id = eq.exam_id 
+      WHERE eq.id = ? AND e.teacher_id = ?
+    `, [id, req.user.id]);
+    if (exam.length === 0) return res.status(403).json({ message: 'Unauthorized' });
+
     await db.query(
       `UPDATE exam_questions SET type=?, question_text=?, marks=?, option_a=?, option_b=?, option_c=?, option_d=?, correct_option=?
        WHERE id=?`,
@@ -266,6 +290,9 @@ exports.deleteQuestion = async (req, res) => {
 exports.getExamResults = async (req, res) => {
   const { id } = req.params;
   try {
+    const [exam] = await db.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [id, req.user.id]);
+    if (exam.length === 0) return res.status(403).json({ message: 'Unauthorized' });
+
     const query = `
       SELECT se.student_id, se.score, se.status, se.started_at, se.finished_at,
              s.name, s.email
@@ -284,6 +311,9 @@ exports.getExamResults = async (req, res) => {
 exports.getStudentAnswersheet = async (req, res) => {
   const { examId, studentId } = req.params;
   try {
+    const [exam] = await db.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [examId, req.user.id]);
+    if (exam.length === 0) return res.status(403).json({ message: 'Unauthorized' });
+
     // Get answers with questions
     const query = `
       SELECT sa.id as answer_id, sa.student_answer, sa.marks_awarded,
@@ -306,6 +336,9 @@ exports.manualGradeAnswersheet = async (req, res) => {
   const { grades } = req.body; // Map: { answer_id: marks_awarded }
 
   try {
+    const [exam] = await db.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [examId, req.user.id]);
+    if (exam.length === 0) return res.status(403).json({ message: 'Unauthorized' });
+
     let totalMarks = 0;
     
     // Begin transaction? No need, just simple updates.
@@ -341,6 +374,9 @@ exports.aiGradeAnswersheet = async (req, res) => {
   const { gradesData } = req.body; // Array of items to grade: [{ answer_id, question_text, student_answer, max_marks }]
 
   try {
+    const [exam] = await db.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [examId, req.user.id]);
+    if (exam.length === 0) return res.status(403).json({ message: 'Unauthorized' });
+
     // 1. Get teacher's LLM API Key
     const [teacher] = await db.query('SELECT llm_api_key FROM teachers WHERE id = ?', [req.user.id]);
     if (teacher.length === 0 || !teacher[0].llm_api_key) {
@@ -439,9 +475,10 @@ exports.getProctoringLogs = async (req, res) => {
       FROM proctoring_logs pl
       JOIN students s ON pl.student_id = s.id
       JOIN exams e ON pl.exam_id = e.id
+      WHERE e.teacher_id = ?
       ORDER BY pl.timestamp DESC
     `;
-    const [rows] = await db.query(query);
+    const [rows] = await db.query(query, [req.user.id]);
     return res.json(rows);
   } catch (error) {
     console.error(error);
@@ -453,6 +490,9 @@ exports.getProctoringLogs = async (req, res) => {
 exports.getExamStudents = async (req, res) => {
   const { examId } = req.params;
   try {
+    const [exam] = await db.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [examId, req.user.id]);
+    if (exam.length === 0) return res.status(403).json({ message: 'Unauthorized' });
+
     const [rows] = await db.query(`
       SELECT s.id, s.name, se.status, se.demerit_points, se.score
       FROM student_exams se
@@ -470,21 +510,24 @@ exports.getExamStudents = async (req, res) => {
 exports.downloadExamLogs = async (req, res) => {
   const { examId } = req.params;
   try {
+    const [exam] = await db.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [examId, req.user.id]);
+    if (exam.length === 0) return res.status(403).json({ message: 'Unauthorized' });
+
     const [logs] = await db.query(`
-      SELECT pl.student_id, s.name, pl.incident_type, pl.description, pl.timestamp
-      FROM proctor_logs pl
+      SELECT pl.student_id, s.name, pl.activity_type, pl.details, pl.timestamp
+      FROM proctoring_logs pl
       JOIN students s ON pl.student_id = s.id
       WHERE pl.exam_id = ?
       ORDER BY pl.timestamp DESC
     `, [examId]);
 
-    let csvContent = 'Student ID,Student Name,Incident Type,Description,Timestamp\n';
+    let csvContent = 'Student ID,Student Name,Activity Type,Details,Timestamp\n';
     logs.forEach(log => {
       const row = [
         `"${log.student_id}"`,
         `"${log.name}"`,
-        `"${log.incident_type}"`,
-        `"${log.description}"`,
+        `"${log.activity_type}"`,
+        `"${log.details}"`,
         `"${new Date(log.timestamp).toISOString()}"`
       ].join(',');
       csvContent += row + '\n';
