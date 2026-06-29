@@ -238,24 +238,38 @@ export default function AdminDashboard() {
               { id: 'notifications', label: 'Notifications', icon: Bell },
               { id: 'admins', label: 'Admins', icon: Shield },
               { id: 'profile', label: 'Admin Credentials', icon: UserCog }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  setError('');
-                  setIsSidebarOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 font-semibold text-sm rounded-xl transition-all ${
-                  activeTab === tab.id 
-                    ? 'bg-tomato-500 text-white shadow-lg shadow-tomato-500/20 animate-fade-in'
-                    : 'text-gray-500 hover:text-dark-900 hover:bg-gray-100/60'
-                }`}
-              >
-                <tab.icon size={18} />
-                <span>{tab.label}</span>
-              </button>
-            ))}
+            ].map(tab => {
+              const unreadCount = tab.id === 'notifications' ? notifications.filter(n => !n.is_read).length : 0;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    setError('');
+                    setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-4 py-3 font-semibold text-sm rounded-xl transition-all ${
+                    activeTab === tab.id 
+                      ? 'bg-tomato-500 text-white shadow-lg shadow-tomato-500/20 animate-fade-in'
+                      : 'text-gray-500 hover:text-dark-900 hover:bg-gray-100/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <tab.icon size={18} />
+                    <span>{tab.label}</span>
+                  </div>
+                  {unreadCount > 0 && (
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                      activeTab === tab.id 
+                        ? 'bg-white text-tomato-500' 
+                        : 'bg-tomato-500 text-white'
+                    }`}>
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 

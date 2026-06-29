@@ -59,6 +59,12 @@ exports.registerTeacher = async (req, res) => {
       [name, email, hashedPassword, 'pending']
     );
 
+    // Add notification for admin
+    await db.query(
+      'INSERT INTO admin_notifications (message) VALUES (?)', 
+      [`New teacher registered: ${name} (${email})`]
+    );
+
     return res.status(201).json({ message: 'Teacher registration request submitted. Awaiting Admin approval.' });
   } catch (error) {
     console.error(error);
@@ -89,6 +95,12 @@ exports.registerStudent = async (req, res) => {
     await db.query(
       'INSERT INTO students (id, name, email, password, status) VALUES (?, ?, ?, ?, ?)',
       [id, name, email, hashedPassword, 'approved']
+    );
+
+    // Add notification for admin
+    await db.query(
+      'INSERT INTO admin_notifications (message) VALUES (?)', 
+      [`New student registered: ${name} (${id})`]
     );
 
     return res.status(201).json({ message: 'Student registration successful. You can now login.' });

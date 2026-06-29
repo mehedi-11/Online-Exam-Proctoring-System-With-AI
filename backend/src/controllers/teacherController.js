@@ -108,15 +108,15 @@ exports.getExams = async (req, res) => {
 };
 
 exports.createExam = async (req, res) => {
-  const { title, exam_date, duration_minutes, type, must_on_camera, must_on_microphone, exam_password } = req.body;
+  const { title, exam_date, duration_minutes, type, must_on_camera, must_on_microphone, exam_password, course_name, course_code, university_name } = req.body;
   if (!title || !exam_date || !duration_minutes || !type) {
     return res.status(400).json({ message: 'All fields are required' });
   }
 
   try {
     const [result] = await db.query(
-      'INSERT INTO exams (title, exam_date, duration_minutes, type, teacher_id, must_on_camera, must_on_microphone, exam_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [title, exam_date, duration_minutes, type, req.user.id, must_on_camera ?? true, must_on_microphone ?? true, exam_password || null]
+      'INSERT INTO exams (title, exam_date, duration_minutes, type, teacher_id, must_on_camera, must_on_microphone, exam_password, course_name, course_code, university_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [title, exam_date, duration_minutes, type, req.user.id, must_on_camera ?? true, must_on_microphone ?? true, exam_password || null, course_name || null, course_code || null, university_name || null]
     );
 
     await db.query('INSERT INTO admin_notifications (message) VALUES (?)', [`Teacher ${req.user.name} created a new exam: ${title}`]);
@@ -130,7 +130,7 @@ exports.createExam = async (req, res) => {
 
 exports.updateExam = async (req, res) => {
   const { id } = req.params;
-  const { title, exam_date, duration_minutes, type, must_on_camera, must_on_microphone, exam_password } = req.body;
+  const { title, exam_date, duration_minutes, type, must_on_camera, must_on_microphone, exam_password, course_name, course_code, university_name } = req.body;
   
   if (!title || !exam_date || !duration_minutes || !type) {
     return res.status(400).json({ message: 'All fields are required' });
@@ -138,9 +138,9 @@ exports.updateExam = async (req, res) => {
   
   try {
     const [result] = await db.query(
-      `UPDATE exams SET title=?, exam_date=?, duration_minutes=?, type=?, must_on_camera=?, must_on_microphone=?, exam_password=?
+      `UPDATE exams SET title=?, exam_date=?, duration_minutes=?, type=?, must_on_camera=?, must_on_microphone=?, exam_password=?, course_name=?, course_code=?, university_name=?
        WHERE id=? AND teacher_id=?`,
-      [title, exam_date, duration_minutes, type, must_on_camera ?? true, must_on_microphone ?? true, exam_password || null, id, req.user.id]
+      [title, exam_date, duration_minutes, type, must_on_camera ?? true, must_on_microphone ?? true, exam_password || null, course_name || null, course_code || null, university_name || null, id, req.user.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Exam not found or unauthorized' });
 

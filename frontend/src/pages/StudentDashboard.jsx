@@ -23,6 +23,9 @@ export default function StudentDashboard() {
   const [exams, setExams] = useState([]);
   const [profile, setProfile] = useState({});
 
+  // Search State
+  const [searchQuery, setSearchQuery] = useState('');
+
   // Password Update State
   const [pwData, setPwData] = useState({ oldPassword: '', newPassword: '' });
   const [showOldPassword, setShowOldPassword] = useState(false);
@@ -223,17 +226,37 @@ export default function StudentDashboard() {
         <div className="bg-white rounded-2xl border border-gray-150 p-6 md:p-8 shadow-sm">
           
           {/* TAB: EXAMS */}
-          {activeTab === 'exams' && (
+          {activeTab === 'exams' && (() => {
+            const filteredExams = exams.filter(exam => {
+              const q = searchQuery.toLowerCase();
+              return (
+                (exam.university_name || '').toLowerCase().includes(q) ||
+                (exam.course_name || '').toLowerCase().includes(q) ||
+                (exam.course_code || '').toLowerCase().includes(q) ||
+                (exam.title || '').toLowerCase().includes(q)
+              );
+            });
+
+            return (
             <div className="space-y-6 animate-fade-in">
-              <h3 className="text-lg font-bold text-dark-900">Available Exam Sittings</h3>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h3 className="text-lg font-bold text-dark-900">Available Exam Sittings</h3>
+                <input
+                  type="text"
+                  placeholder="Search by university, course name or code..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full sm:w-80 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-tomato-500 smooth-transition"
+                />
+              </div>
               
-              {exams.length === 0 ? (
+              {filteredExams.length === 0 ? (
                 <div className="border border-dashed border-gray-200 bg-gray-50/20 py-12 text-center text-xs text-gray-400 rounded-xl">
-                  There are no exams available at the moment.
+                  {searchQuery ? 'No exams match your search.' : 'There are no exams available at the moment.'}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {exams.map(exam => {
+                  {filteredExams.map(exam => {
                     const isUpcoming = new Date(exam.exam_date) > new Date();
                     const isFinished = exam.exam_status === 'completed';
                     const isBlocked = exam.block_until && new Date(exam.block_until) > new Date();
@@ -258,7 +281,16 @@ export default function StudentDashboard() {
                             )}
                           </div>
 
-                          <h4 className="font-bold text-dark-900 text-sm mb-4">{exam.title}</h4>
+                          <h4 className="font-bold text-dark-900 text-sm mb-2">{exam.title}</h4>
+
+                          <div className="mb-4">
+                             {exam.university_name && <p className="text-xs text-tomato-600 font-semibold truncate" title={exam.university_name}>{exam.university_name}</p>}
+                             {(exam.course_name || exam.course_code) && (
+                               <p className="text-[11px] text-gray-600 font-medium truncate" title={`${exam.course_name || ''} ${exam.course_code || ''}`}>
+                                 {exam.course_name} {exam.course_code && `(${exam.course_code})`}
+                               </p>
+                             )}
+                          </div>
 
                           <div className="space-y-1.5 text-[11px] text-gray-500 border-t border-gray-100 pt-3">
                             <p className="flex items-center gap-1.5"><Calendar size={13} /> {new Date(exam.exam_date).toLocaleString()}</p>
@@ -291,7 +323,8 @@ export default function StudentDashboard() {
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
 
 
